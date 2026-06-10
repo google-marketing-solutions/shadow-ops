@@ -96,6 +96,12 @@ func (s *Server) handleCreateWorkspace(w http.ResponseWriter, r *http.Request) {
 	s.workspaces[id] = ws
 	s.mu.Unlock()
 
+	_, err = s.db.Exec(`INSERT OR REPLACE INTO workspaces (id, name, target_app, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+		ws.ID, ws.Name, ws.TargetApp, ws.CreatedAt.Format(time.RFC3339), ws.UpdatedAt.Format(time.RFC3339))
+	if err != nil {
+		log.Printf("warning: failed inserting workspace %s into sqlite: %v", id, err)
+	}
+
 	if err := s.waitForAgentHealth(ws, 30*time.Second); err != nil {
 		_ = s.removeWorkspaceContainer(ws)
 		ws.mu.Lock()
@@ -150,6 +156,12 @@ func (s *Server) handleRenameWorkspace(w http.ResponseWriter, r *http.Request) {
 	ws.UpdatedAt = time.Now().UTC()
 	ws.mu.Unlock()
 
+	_, err := s.db.Exec(`UPDATE workspaces SET name = ?, updated_at = ? WHERE id = ?`,
+		req.Name, time.Now().UTC().Format(time.RFC3339), ws.ID)
+	if err != nil {
+		log.Printf("warning: failed updating workspace %s name in sqlite: %v", ws.ID, err)
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "name": req.Name})
 }
 
@@ -165,6 +177,7 @@ func (s *Server) handleGetWorkspace(w http.ResponseWriter, r *http.Request) {
 	ws.mu.RLock()
 	resp := map[string]any{
 		"workspaceId":    ws.ID,
+		"name":           ws.Name,
 		"status":         ws.Status,
 		"recordingState": ws.RecordingState,
 		"currentUrl":     ws.CurrentURL,

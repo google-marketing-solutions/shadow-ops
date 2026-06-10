@@ -77,6 +77,16 @@ func (s *Server) recoverWorkspaces() {
 			clients:           map[*WSClient]struct{}{},
 		}
 
+		var recoveredName string
+		err = s.db.QueryRow(`SELECT name FROM workspaces WHERE id = ?`, workspaceID).Scan(&recoveredName)
+		if err == nil && recoveredName != "" {
+			ws.Name = recoveredName
+		} else {
+			ws.Name = workspaceID
+			_, _ = s.db.Exec(`INSERT OR IGNORE INTO workspaces (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)`,
+				workspaceID, workspaceID, time.Now().UTC().Format(time.RFC3339), time.Now().UTC().Format(time.RFC3339))
+		}
+
 		s.mu.Lock()
 		s.workspaces[workspaceID] = ws
 		s.mu.Unlock()

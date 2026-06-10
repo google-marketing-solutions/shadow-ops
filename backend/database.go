@@ -64,6 +64,17 @@ func InitDB(dataDir string) *sql.DB {
 	if _, err := db.Exec(createBatchExecutionsSQL); err != nil {
 		log.Fatalf("failed to create batch_executions table: %v", err)
 	}
+	createWorkspacesSQL := `
+	CREATE TABLE IF NOT EXISTS workspaces (
+		"id" TEXT NOT NULL PRIMARY KEY,
+		"name" TEXT,
+		"target_app" TEXT,
+		"created_at" TEXT,
+		"updated_at" TEXT
+	);`
+	if _, err := db.Exec(createWorkspacesSQL); err != nil {
+		log.Fatalf("failed to create workspaces table: %v", err)
+	}
 
 	log.Println("Database initialized successfully.")
 	return db
