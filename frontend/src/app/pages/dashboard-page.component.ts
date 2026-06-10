@@ -30,6 +30,7 @@ export class DashboardPageComponent {
   readonly creatingWorkspace = signal(false);
   readonly error = signal<string | null>(null);
   readonly runningWorkspaceCount = computed(() => this.workspaces().filter((workspace) => workspace.status !== 'killed').length);
+  readonly shadowopsEnabled = computed(() => this.sessionState.shadowopsEnabled());
   readonly topActionSets = computed(() => this.actionSets().slice(0, 4));
 
   constructor() {

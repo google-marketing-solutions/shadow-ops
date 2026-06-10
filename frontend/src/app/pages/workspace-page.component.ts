@@ -83,6 +83,7 @@ export class WorkspacePageComponent implements AfterViewInit, OnDestroy {
   readonly sessionStartedAt = signal(Date.now());
   readonly nowMs = signal(Date.now());
   readonly scriptableActionSets = signal<ActionSetItem[]>([]);
+  readonly defaultScripts = signal<Array<{filename: string; source: string}>>([]);
 
   // Batch Execution State
   readonly csvFile = signal<File | null>(null);
@@ -100,6 +101,7 @@ export class WorkspacePageComponent implements AfterViewInit, OnDestroy {
   readonly scriptRunning = computed(() => ['running', 'cancelling'].includes(String(this.scriptStatusState().status ?? 'idle')));
   readonly canReview = computed(() => !this.scriptRunning() && this.recordingState() === 'off' && this.steps().length > 0);
   readonly sessionSeconds = computed(() => Math.floor((this.nowMs() - this.sessionStartedAt()) / 1000));
+  readonly shadowopsEnabled = computed(() => this.sessionState.shadowopsEnabled());
 
   private wsHandle?: ReturnType<WorkspaceSocketService['connect']>;
   private wsSub?: Subscription;
@@ -117,6 +119,7 @@ export class WorkspacePageComponent implements AfterViewInit, OnDestroy {
       this.connectWorkspace();
     });
     this.loadScriptableActionSets();
+    this.loadDefaultScripts();
   }
 
   ngAfterViewInit(): void {
@@ -418,6 +421,24 @@ export class WorkspacePageComponent implements AfterViewInit, OnDestroy {
         },
         error: () => {}
       });
+  }
+
+  private loadDefaultScripts(): void {
+    this.api.listDefaultScripts()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => this.defaultScripts.set(res.items || []),
+        error: () => {}
+      });
+  }
+
+  onDefaultScriptSelected(event: Event): void {
+    const select = event.target as HTMLSelectElement;
+    const found = this.defaultScripts().find((s) => s.filename === select.value);
+    if (found) {
+      this.scriptFilename.set(found.filename);
+      this.scriptSource.set(found.source);
+    }
   }
 
   loadScriptFromActionSet(event: Event): void {

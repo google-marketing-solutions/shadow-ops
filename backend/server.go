@@ -3,6 +3,8 @@ package main
 import (
 	"database/sql"
 	"net/http"
+	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -14,9 +16,10 @@ type Server struct {
 	dataDir    string
 	db         *sql.DB
 
-	mu         sync.RWMutex
-	workspaces map[string]*Workspace
-	actionSets map[string]*ActionSet
+	mu               sync.RWMutex
+	workspaces       map[string]*Workspace
+	actionSets       map[string]*ActionSet
+	shadowopsEnabled bool
 
 	imageBuildOnce sync.Once
 	imageBuildErr  error
@@ -26,13 +29,14 @@ type Server struct {
 
 func NewServer(repoRoot, dataDir string, db *sql.DB) *Server {
 	s := &Server{
-		mux:        http.NewServeMux(),
-		httpClient: &http.Client{Timeout: 5 * time.Second},
-		repoRoot:   repoRoot,
-		dataDir:    dataDir,
-		db:         db,
-		workspaces: map[string]*Workspace{},
-		actionSets: map[string]*ActionSet{},
+		mux:              http.NewServeMux(),
+		httpClient:       &http.Client{Timeout: 5 * time.Second},
+		repoRoot:         repoRoot,
+		dataDir:          dataDir,
+		db:               db,
+		workspaces:       map[string]*Workspace{},
+		actionSets:       map[string]*ActionSet{},
+		shadowopsEnabled: strings.EqualFold(strings.TrimSpace(os.Getenv("SHADOWOPS_ENABLED")), "true"),
 	}
 	s.cronScheduler = NewCronScheduler(s)
 	return s
@@ -40,7 +44,11 @@ func NewServer(repoRoot, dataDir string, db *sql.DB) *Server {
 
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "service": "shadowops-backend"})
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":               true,
+			"service":          "shadowops-backend",
+			"shadowopsEnabled": s.shadowopsEnabled,
+		})
 	})
 	s.mux.HandleFunc("GET /api/v1/workspaces", s.handleListWorkspaces)
 	s.mux.HandleFunc("POST /api/v1/workspaces", s.handleCreateWorkspace)
@@ -55,6 +63,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/v1/workspaces/{workspaceId}/script/status", s.handleScriptStatus)
 	s.mux.HandleFunc("POST /api/v1/workspaces/{workspaceId}/script/cancel", s.handleScriptCancel)
 	s.mux.HandleFunc("GET /api/v1/workspaces/{workspaceId}/ws", s.handleWorkspaceWS)
+	s.mux.HandleFunc("GET /api/v1/default-scripts", s.handleListDefaultScripts)
 
 	s.mux.HandleFunc("GET /api/v1/workspaces/{workspaceId}/cron", s.handleGetWorkspaceCron)
 	s.mux.HandleFunc("POST /api/v1/workspaces/{workspaceId}/cron", s.handleSetWorkspaceCron)

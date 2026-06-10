@@ -7,11 +7,16 @@ import {ShadowStep, WorkspaceSummary} from './types';
 @Injectable({providedIn: 'root'})
 export class SessionStateService {
   readonly activeWorkspaceId = signal<string | null>(null);
+  readonly shadowopsEnabled = signal(false);
   readonly latestWorkspace = signal<WorkspaceSummary | null>(null);
   readonly latestCaptureSessionId = signal<string | null>(null);
   readonly latestSteps = signal<ShadowStep[]>([]);
   readonly latestFrameSrc = signal<string | null>(null);
   readonly latestCurrentUrl = signal<string | null>(null);
+
+  setShadowopsEnabled(enabled: boolean): void {
+    this.shadowopsEnabled.set(enabled);
+  }
 
   setWorkspace(workspace: WorkspaceSummary): void {
     this.activeWorkspaceId.set(workspace.workspaceId);

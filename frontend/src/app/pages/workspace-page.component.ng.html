@@ -68,341 +68,369 @@
     </section>
 
     <aside class="control-panel">
-      <div class="card section-header">
-        <h2>Session Controls</h2>
-        <p>Manage the active browser instance</p>
-      </div>
-
-      <div class="card controls">
-        @if (recordingState() === 'off') {
-          <button type="button" class="primary-control start" (click)="startShadow()" [disabled]="busy() || scriptRunning()">▶ Start Shadow</button>
-        } @else {
-          <button type="button" class="primary-control end" (click)="endShadow()" [disabled]="busy() || scriptRunning()">■ End Shadow</button>
-        }
-        <div class="small-btn-row">
-          <button type="button" disabled>Screenshot</button>
-          <button type="button" disabled>Debug</button>
-        </div>
-      </div>
-
-      <div class="card status-card">
-        <div class="row">
-          <span class="label">Recording Status</span>
-          <span class="value">
-            <span class="dot" [class.recording]="recordingState() === 'on'"></span>
-            {{ recordingState() | uppercase }}
-          </span>
-        </div>
-        <div class="row">
-          <span class="label">Network Engine</span>
-          <span class="value">
-            <span class="dot" [class.on]="socketConnected()"></span>
-            {{ socketConnected() ? 'CONNECTED' : 'RECONNECTING' }}
-          </span>
-        </div>
-        <div class="url-row">
-          <span class="label">Active Endpoint</span>
-          <div class="url-value truncate">{{ currentUrl() }}</div>
-        </div>
-      </div>
-
-      <div class="card script-runner-card">
-        <div class="script-runner-header">
-          <h3>Python Script Runner</h3>
-          <span class="script-status-pill" [class.running]="scriptRunning()" [class.failed]="scriptStatusState().status === 'failed'" [class.success]="scriptStatusState().status === 'succeeded'">
-            {{ scriptStatusState().status | uppercase }}
-          </span>
-        </div>
-        <p class="script-help">Run a user-authored Python Playwright script in this same workspace session (cookies/login preserved).</p>
-
-        <div class="script-loader">
-          <label class="script-label">
-            <span>Load script from library</span>
-            <select (change)="loadScriptFromActionSet($event)" [disabled]="scriptRunning() || scriptSubmitting()">
-              <option value="">Select a saved script...</option>
-              @for (item of scriptableActionSets(); track item.id) {
-                <option [value]="item.id">{{ item.name }} (v{{ item.version }})</option>
-              }
-            </select>
-          </label>
-          <div class="or-divider">OR</div>
-          <label class="script-label">
-            <span>Upload from file (.py)</span>
-            <input type="file" accept=".py,text/x-python" (change)="onScriptFileSelected($event)" [disabled]="scriptRunning() || scriptSubmitting()" />
-          </label>
+      @if (shadowopsEnabled()) {
+        <div class="card section-header">
+          <h2>Session Controls</h2>
+          <p>Manage the active browser instance</p>
         </div>
 
-        <label class="script-label">
-          <span>Filename</span>
-          <input [ngModel]="scriptFilename()" (ngModelChange)="scriptFilename.set($event)" [disabled]="scriptRunning()" />
-        </label>
-
-        <label class="script-label">
-          <span>Target URL (input to script)</span>
-          <input
-            [ngModel]="scriptTargetUrl()"
-            (ngModelChange)="onScriptTargetUrlChange($event)"
-            (focus)="onScriptTargetUrlFocus()"
-            (blur)="onScriptTargetUrlBlur()"
-            [disabled]="scriptRunning()"
-          />
-        </label>
-
-        <label class="script-label">
-          <span>Script Source</span>
-          <textarea
-            rows="8"
-            [ngModel]="scriptSource()"
-            (ngModelChange)="scriptSource.set($event)"
-            [disabled]="scriptRunning()"
-            placeholder="async def run(page, context, browser, target_url, helpers):&#10;    helpers.info(f'Running for {target_url}')&#10;    await page.goto(target_url)"
-          ></textarea>
-        </label>
-
-        <div class="script-actions">
-          <button
-            type="button"
-            class="script-run-btn"
-            (click)="runScript()"
-            [disabled]="scriptRunning() || scriptSubmitting() || !scriptSource().trim()"
-          >
-            ▶ Run Script
-          </button>
-          <button
-            type="button"
-            class="script-cancel-btn"
-            (click)="cancelScript()"
-            [disabled]="!scriptRunning() || scriptSubmitting()"
-          >
-            ■ Cancel
-          </button>
-        </div>
-
-        <div class="script-meta">
-          <div class="row"><span>Run ID</span><strong class="truncate">{{ scriptStatusState().runId || '—' }}</strong></div>
-          <div class="row"><span>Started</span><strong>{{ scriptStatusState().startedAt || '—' }}</strong></div>
-          <div class="row"><span>Finished</span><strong>{{ scriptStatusState().finishedAt || '—' }}</strong></div>
-        </div>
-
-        @if (scriptPanelError()) {
-          <div class="script-inline-error">{{ scriptPanelError() }}</div>
-        }
-        @if (scriptStatusState().error) {
-          <div class="script-inline-error">
-            <strong>Run Error:</strong> {{ scriptStatusState().error }}
-          </div>
-        }
-        @if (scriptStatusState().traceback) {
-          <details class="script-traceback">
-            <summary>Traceback</summary>
-            <pre>{{ scriptStatusState().traceback }}</pre>
-          </details>
-        }
-        @if (scriptStatusState().result !== null && scriptStatusState().result !== undefined) {
-          <details class="script-result">
-            <summary>Result</summary>
-            <pre>{{ scriptStatusState().result | json }}</pre>
-          </details>
-        }
-
-        <div class="script-log-panel">
-          <div class="script-log-header">
-            <strong>Script Logs</strong>
-            <span>{{ (scriptStatusState().logs ?? []).length }} entries</span>
-          </div>
-          <div class="script-log-list">
-            @for (log of (scriptStatusState().logs ?? []); track $index) {
-              <div class="script-log-line">
-                <span class="ts">{{ log.ts }}</span>
-                <span class="level">{{ log.level }}</span>
-                <span class="msg">{{ log.message }}</span>
-              </div>
-            } @empty {
-              <p class="script-log-empty">No script logs yet.</p>
-            }
-          </div>
-        </div>
-      </div>
-
-      <div class="card batch-runner-card">
-        <div class="script-runner-header">
-          <h3>Batch Execution (CSV)</h3>
-        </div>
-        <p class="script-help">Upload a CSV of URLs to run the script sequentially. Results will be appended to the CSV.</p>
-
-        <label class="script-label">
-          <span>Upload CSV File</span>
-          <input type="file" accept=".csv" (change)="onCsvSelected($event)" [disabled]="batchRunning() || scriptRunning()" />
-        </label>
-
-        @if (csvColumns().length > 0) {
-        <label class="script-label">
-          <span>Select URL Column</span>
-          <select [ngModel]="selectedUrlColumn()" (ngModelChange)="selectedUrlColumn.set($event)"
-            [disabled]="batchRunning() || scriptRunning()">
-            <option value="">-- Select Column --</option>
-            @for (col of csvColumns(); track col) {
-            <option [value]="col">{{ col }}</option>
-            }
-          </select>
-        </label>
-        }
-
-        <div class="script-actions">
-          <button type="button" class="script-run-btn" (click)="runBatch()"
-            [disabled]="batchRunning() || scriptRunning() || !csvData().length || !selectedUrlColumn() || !scriptSource().trim()">
-            ▶ Run Batch
-          </button>
-          <button type="button" class="script-cancel-btn" (click)="cancelBatch()" [disabled]="!batchRunning()">
-            ■ Cancel Batch
-          </button>
-          <button type="button" class="script-cancel-btn" (click)="downloadBatchResults()" [disabled]="!csvData().length">
-            ⬇ Download Results
-          </button>
-        </div>
-
-        @if (batchRunning()) {
-        <div class="script-meta">
-          <div class="row">
-            <span>Progress</span>
-            <strong>{{ batchProgress().current }} / {{ batchProgress().total }}</strong>
-          </div>
-        </div>
-        }
-
-        @if (csvData().length > 0) {
-        <div class="csv-preview">
-          <h4>CSV Preview ({{ csvData().length }} rows)</h4>
-          <div class="table-container" style="max-height: 300px; overflow-y: auto; overflow-x: auto;">
-            <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
-              <thead>
-                <tr>
-                  @for (col of getCsvKeys(); track col) {
-                  <th style="border: 1px solid #ddd; padding: 4px; text-align: left; background-color: #f5f5f5;">{{ col }}
-                  </th>
-                  }
-                </tr>
-              </thead>
-              <tbody>
-                @for (row of csvData(); track $index) {
-                <tr>
-                  @for (col of getCsvKeys(); track col) {
-                  <td style="border: 1px solid #ddd; padding: 4px;">{{ row[col] }}</td>
-                  }
-                </tr>
-                }
-              </tbody>
-            </table>
-          </div>
-        </div>
-        }
-      </div>
-
-      <div class="card cron-runner-card">
-        <div class="script-runner-header">
-          <h3>Cron Schedule</h3>
-        </div>
-        <p class="script-help">Schedule the currently loaded script and CSV to run automatically.</p>
-
-        <label class="script-label">
-          <span>Cron Expression (e.g., 0 0 * * * for daily)</span>
-          <input [ngModel]="cronExpression()" (ngModelChange)="cronExpression.set($event)" placeholder="* * * * *" />
-        </label>
-
-        <div class="script-actions">
-          <button type="button" class="script-run-btn" (click)="saveCronSchedule()"
-            [disabled]="!cronExpression().trim() || !csvData().length || !selectedUrlColumn() || !scriptSource().trim()">
-            💾 Save Schedule
-          </button>
-          @if (cronSchedule()) {
-          <button type="button" class="script-cancel-btn" (click)="deleteCronSchedule()">
-            🗑️ Delete Schedule
-          </button>
+        <div class="card controls">
+          @if (recordingState() === 'off') {
+            <button type="button" class="primary-control start" (click)="startShadow()" [disabled]="busy() || scriptRunning()">▶ Start Shadow</button>
+          } @else {
+            <button type="button" class="primary-control end" (click)="endShadow()" [disabled]="busy() || scriptRunning()">■ End Shadow</button>
           }
-        </div>
-
-        @if (cronSchedule(); as cron) {
-        <div class="script-meta">
-          <div class="row">
-            <span>Active Schedule</span>
-            <strong>{{ cron.cronExpression }}</strong>
-          </div>
-          <div class="row">
-            <span>Script</span>
-            <strong>{{ cron.scriptFilename || 'cron_automation.py' }}</strong>
-          </div>
-          <div class="row">
-            <span>CSV File</span>
-            <strong>{{ cron.csvFilename || 'data.csv' }}</strong>
-          </div>
-          <div class="row">
-            <span>Last Updated</span>
-            <strong>{{ cron.updatedAt | date:'short' }}</strong>
+          <div class="small-btn-row">
+            <button type="button" disabled>Screenshot</button>
+            <button type="button" disabled>Debug</button>
           </div>
         </div>
-        }
 
-        <div class="script-log-panel" style="margin-top: 16px;">
-          <div class="script-log-header">
-            <strong>Execution History (Last 10)</strong>
-            <button type="button" class="mini" (click)="loadBatchExecutions()">Refresh</button>
+        <div class="card status-card">
+          <div class="row">
+            <span class="label">Recording Status</span>
+            <span class="value">
+              <span class="dot" [class.recording]="recordingState() === 'on'"></span>
+              {{ recordingState() | uppercase }}
+            </span>
           </div>
-          <div class="script-log-list" style="max-height: 200px; overflow-y: auto;">
-            @for (exec of batchExecutions(); track exec.id) {
-            <div class="script-log-line"
-              style="display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px solid #eee;">
-              <div>
-                <span class="ts">{{ exec.startedAt | date:'short' }}</span>
-                <span class="level" [class.success]="exec.status === 'success'" [class.failed]="exec.status === 'failed'">{{
-                  exec.status | uppercase }}</span>
-              </div>
-              <div>
-                @if (exec.status === 'success') {
-                <button type="button" class="mini" (click)="downloadExecutionCsv(exec.id)">Download CSV</button>
+          <div class="row">
+            <span class="label">Network Engine</span>
+            <span class="value">
+              <span class="dot" [class.on]="socketConnected()"></span>
+              {{ socketConnected() ? 'CONNECTED' : 'RECONNECTING' }}
+            </span>
+          </div>
+          <div class="url-row">
+            <span class="label">Active Endpoint</span>
+            <div class="url-value truncate">{{ currentUrl() }}</div>
+          </div>
+        </div>
+      }
+
+      @if (shadowopsEnabled()) {
+        <div class="card script-runner-card">
+          <div class="script-runner-header">
+            <h3>Python Script Runner</h3>
+            <span class="script-status-pill" [class.running]="scriptRunning()" [class.failed]="scriptStatusState().status === 'failed'" [class.success]="scriptStatusState().status === 'succeeded'">
+              {{ scriptStatusState().status | uppercase }}
+            </span>
+          </div>
+          <p class="script-help">Run a user-authored Python Playwright script in this same workspace session (cookies/login preserved).</p>
+
+          <div class="script-loader">
+            <label class="script-label">
+              <span>Load script from library</span>
+              <select (change)="loadScriptFromActionSet($event)" [disabled]="scriptRunning() || scriptSubmitting()">
+                <option value="">Select a saved script...</option>
+                @for (item of scriptableActionSets(); track item.id) {
+                  <option [value]="item.id">{{ item.name }} (v{{ item.version }})</option>
                 }
-                @if (exec.status === 'running') {
-                <button type="button" class="mini" (click)="cancelExecution(exec.id)">Cancel</button>
+              </select>
+            </label>
+            <div class="or-divider">OR</div>
+            <label class="script-label">
+              <span>Upload from file (.py)</span>
+              <input type="file" accept=".py,text/x-python" (change)="onScriptFileSelected($event)" [disabled]="scriptRunning() || scriptSubmitting()" />
+            </label>
+          </div>
+
+          <label class="script-label">
+            <span>Filename</span>
+            <input [ngModel]="scriptFilename()" (ngModelChange)="scriptFilename.set($event)" [disabled]="scriptRunning()" />
+          </label>
+
+          <label class="script-label">
+            <span>Target URL (input to script)</span>
+            <input
+              [ngModel]="scriptTargetUrl()"
+              (ngModelChange)="onScriptTargetUrlChange($event)"
+              (focus)="onScriptTargetUrlFocus()"
+              (blur)="onScriptTargetUrlBlur()"
+              [disabled]="scriptRunning()"
+            />
+          </label>
+
+          <label class="script-label">
+            <span>Script Source</span>
+            <textarea
+              rows="8"
+              [ngModel]="scriptSource()"
+              (ngModelChange)="scriptSource.set($event)"
+              [disabled]="scriptRunning()"
+              placeholder="async def run(page, context, browser, target_url, helpers):&#10;    helpers.info(f'Running for {target_url}')&#10;    await page.goto(target_url)"
+            ></textarea>
+          </label>
+
+          <div class="script-actions">
+            <button
+              type="button"
+              class="script-run-btn"
+              (click)="runScript()"
+              [disabled]="scriptRunning() || scriptSubmitting() || !scriptSource().trim()"
+            >
+              ▶ Run Script
+            </button>
+            <button
+              type="button"
+              class="script-cancel-btn"
+              (click)="cancelScript()"
+              [disabled]="!scriptRunning() || scriptSubmitting()"
+            >
+              ■ Cancel
+            </button>
+          </div>
+
+          <div class="script-meta">
+            <div class="row"><span>Run ID</span><strong class="truncate">{{ scriptStatusState().runId || '—' }}</strong></div>
+            <div class="row"><span>Started</span><strong>{{ scriptStatusState().startedAt || '—' }}</strong></div>
+            <div class="row"><span>Finished</span><strong>{{ scriptStatusState().finishedAt || '—' }}</strong></div>
+          </div>
+
+          @if (scriptPanelError()) {
+            <div class="script-inline-error">{{ scriptPanelError() }}</div>
+          }
+          @if (scriptStatusState().error) {
+            <div class="script-inline-error">
+              <strong>Run Error:</strong> {{ scriptStatusState().error }}
+            </div>
+          }
+          @if (scriptStatusState().traceback) {
+            <details class="script-traceback">
+              <summary>Traceback</summary>
+              <pre>{{ scriptStatusState().traceback }}</pre>
+            </details>
+          }
+          @if (scriptStatusState().result !== null && scriptStatusState().result !== undefined) {
+            <details class="script-result">
+              <summary>Result</summary>
+              <pre>{{ scriptStatusState().result | json }}</pre>
+            </details>
+          }
+
+          <div class="script-log-panel">
+            <div class="script-log-header">
+              <strong>Script Logs</strong>
+              <span>{{ (scriptStatusState().logs ?? []).length }} entries</span>
+            </div>
+            <div class="script-log-list">
+              @for (log of (scriptStatusState().logs ?? []); track $index) {
+                <div class="script-log-line">
+                  <span class="ts">{{ log.ts }}</span>
+                  <span class="level">{{ log.level }}</span>
+                  <span class="msg">{{ log.message }}</span>
+                </div>
+              } @empty {
+                <p class="script-log-empty">No script logs yet.</p>
+              }
+            </div>
+          </div>
+        </div>
+      }
+
+        <div class="card batch-runner-card">
+          <div class="script-runner-header">
+            <h3>Run with CSV Inputs</h3>
+          </div>
+          <p class="script-help">Upload a CSV containing variables to run the script sequentially over each row. Results will be appended to the CSV.</p>
+
+          @if (!shadowopsEnabled()) {
+            <label class="script-label">
+              <span>Select Default Playwright Script</span>
+              <select (change)="onDefaultScriptSelected($event)" [disabled]="batchRunning() || scriptRunning()">
+                <option value="">-- Select Default Script --</option>
+                @for (item of defaultScripts(); track item.filename) {
+                  <option [value]="item.filename">{{ item.filename }}</option>
                 }
+              </select>
+            </label>
+          } @else {
+            <label class="script-label">
+              <span>Upload Python Script (.py)</span>
+              <input type="file" accept=".py,text/x-python" (change)="onScriptFileSelected($event)" [disabled]="batchRunning() || scriptRunning()" />
+            </label>
+            <div class="script-meta" style="margin-bottom: 12px; margin-top: -8px;">
+              <div class="row">
+                <span>Loaded Script</span>
+                <strong>{{ scriptFilename() || 'None selected' }}</strong>
               </div>
             </div>
+          }
+
+          <label class="script-label">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+              <span>Upload CSV File</span>
+              <button type="button" class="btn btn-sm" style="padding: 2px 8px; font-size: 12px; border-radius: 4px; border: 1px solid #ccc; background: transparent; cursor: pointer; color: inherit;" (click)="openApiModal()">API Upload</button>
+            </div>
+            <input type="file" accept=".csv" (change)="onCsvSelected($event)" [disabled]="batchRunning() || scriptRunning()" />
+          </label>
+
+          <div class="script-actions">
+            <button type="button" class="script-run-btn" (click)="runBatch()"
+              [disabled]="batchRunning() || scriptRunning() || !csvData().length || !scriptSource().trim()">
+              ▶ Run
+            </button>
+            <button type="button" class="script-cancel-btn" (click)="cancelBatch()" [disabled]="!batchRunning()">
+              ■ Cancel
+            </button>
+            <button type="button" class="script-cancel-btn" (click)="downloadBatchResults()" [disabled]="!csvData().length">
+              ⬇ Download Results
+            </button>
+          </div>
+
+          @if (batchRunning()) {
+          <div class="script-meta">
+            <div class="row">
+              <span>Progress</span>
+              <strong>{{ batchProgress().current }} / {{ batchProgress().total }}</strong>
+            </div>
+          </div>
+          }
+
+          @if (csvData().length > 0) {
+          <div class="csv-preview">
+            <h4>CSV Preview ({{ csvData().length }} rows)</h4>
+            <div class="table-container" style="max-height: 300px; overflow-y: auto; overflow-x: auto;">
+              <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                <thead>
+                  <tr>
+                    @for (col of getCsvKeys(); track col) {
+                    <th style="border: 1px solid #ddd; padding: 4px; text-align: left; background-color: #f5f5f5;">{{ col }}
+                    </th>
+                    }
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (row of csvData(); track $index) {
+                  <tr>
+                    @for (col of getCsvKeys(); track col) {
+                    <td style="border: 1px solid #ddd; padding: 4px;">{{ row[col] }}</td>
+                    }
+                  </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          </div>
+          }
+        </div>
+
+        <div class="card cron-runner-card">
+          <div class="script-runner-header">
+            <h3>Cron Schedule</h3>
+          </div>
+          <p class="script-help">Schedule the currently loaded script and CSV to run automatically.</p>
+
+          @if (!shadowopsEnabled()) {
+            <div class="script-meta" style="margin-bottom: 12px;">
+              <div class="row">
+                <span>Loaded Script</span>
+                <strong>{{ scriptFilename() || 'None selected' }}</strong>
+              </div>
+            </div>
+          }
+
+          <label class="script-label">
+            <span>Cron Expression (e.g., 0 0 * * * for daily)</span>
+            <input [ngModel]="cronExpression()" (ngModelChange)="cronExpression.set($event)" placeholder="* * * * *" />
+          </label>
+
+          <div class="script-actions">
+            <button type="button" class="script-run-btn" (click)="saveCronSchedule()"
+              [disabled]="!cronExpression().trim() || !csvData().length || !scriptSource().trim()">
+              💾 Save Schedule
+            </button>
+            @if (cronSchedule()) {
+            <button type="button" class="script-cancel-btn" (click)="deleteCronSchedule()">
+              🗑️ Delete Schedule
+            </button>
+            }
+          </div>
+
+          @if (cronSchedule(); as cron) {
+          <div class="script-meta">
+            <div class="row">
+              <span>Active Schedule</span>
+              <strong>{{ cron.cronExpression }}</strong>
+            </div>
+            <div class="row">
+              <span>Script</span>
+              <strong>{{ cron.scriptFilename || 'cron_automation.py' }}</strong>
+            </div>
+            <div class="row">
+              <span>CSV File</span>
+              <strong>{{ cron.csvFilename || 'data.csv' }}</strong>
+            </div>
+            <div class="row">
+              <span>Last Updated</span>
+              <strong>{{ cron.updatedAt | date:'short' }}</strong>
+            </div>
+          </div>
+          }
+
+          <div class="script-log-panel" style="margin-top: 16px;">
+            <div class="script-log-header">
+              <strong>Execution History (Last 10)</strong>
+              <button type="button" class="mini" (click)="loadBatchExecutions()">Refresh</button>
+            </div>
+            <div class="script-log-list" style="max-height: 200px; overflow-y: auto;">
+              @for (exec of batchExecutions(); track exec.id) {
+              <div class="script-log-line"
+                style="display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px solid #eee;">
+                <div>
+                  <span class="ts">{{ exec.startedAt | date:'short' }}</span>
+                  <span class="level" [class.success]="exec.status === 'success'" [class.failed]="exec.status === 'failed'">{{
+                    exec.status | uppercase }}</span>
+                </div>
+                <div>
+                  @if (exec.status === 'success') {
+                  <button type="button" class="mini" (click)="downloadExecutionCsv(exec.id)">Download CSV</button>
+                  }
+                  @if (exec.status === 'running') {
+                  <button type="button" class="mini" (click)="cancelExecution(exec.id)">Cancel</button>
+                  }
+                </div>
+              </div>
+              } @empty {
+              <p class="script-log-empty">No execution history.</p>
+              }
+            </div>
+          </div>
+        </div>
+
+      @if (shadowopsEnabled()) {
+        <div class="card timeline-card">
+          <div class="timeline-header">
+            <h3>Timeline</h3>
+            <button type="button" class="mini" (click)="openReview()" [disabled]="!canReview()">Review</button>
+          </div>
+          <div class="timeline-list">
+            @for (step of steps(); track step.stepIndex) {
+              <article class="timeline-item" [class.active]="recordingState() === 'on' && step.stepIndex === steps().length">
+                <div class="node">{{ step.stepIndex }}</div>
+                <div class="content">
+                  <div class="title">{{ step.type | titlecase }}</div>
+                  <div class="detail">{{ formattedStep(step) }}</div>
+                </div>
+              </article>
             } @empty {
-            <p class="script-log-empty">No execution history.</p>
+              <p class="timeline-empty">Start Shadow after login to capture actions.</p>
             }
           </div>
         </div>
-      </div>
 
-      <div class="card timeline-card">
-        <div class="timeline-header">
-          <h3>Timeline</h3>
-          <button type="button" class="mini" (click)="openReview()" [disabled]="!canReview()">Review</button>
+        <div class="card options-card">
+          <h3>Recording Options</h3>
+          <label><input type="checkbox" [ngModel]="captureKeyboardInput()" (ngModelChange)="captureKeyboardInput.set($event)" /> Capture Keyboard Input</label>
+          <label><input type="checkbox" [ngModel]="highlightClicks()" (ngModelChange)="highlightClicks.set($event)" /> Highlight Clicks</label>
+          <label><input type="checkbox" [ngModel]="captureAudio()" (ngModelChange)="captureAudio.set($event)" /> Record Audio Commentary</label>
         </div>
-        <div class="timeline-list">
-          @for (step of steps(); track step.stepIndex) {
-            <article class="timeline-item" [class.active]="recordingState() === 'on' && step.stepIndex === steps().length">
-              <div class="node">{{ step.stepIndex }}</div>
-              <div class="content">
-                <div class="title">{{ step.type | titlecase }}</div>
-                <div class="detail">{{ formattedStep(step) }}</div>
-              </div>
-            </article>
-          } @empty {
-            <p class="timeline-empty">Start Shadow after login to capture actions.</p>
-          }
+
+        <div class="card login-info">
+          <h3>Manual Login Mode</h3>
+          <p>Complete the login manually. Recording starts only when you click <strong>Start Shadow</strong>.</p>
         </div>
-      </div>
-
-      <div class="card options-card">
-        <h3>Recording Options</h3>
-        <label><input type="checkbox" [ngModel]="captureKeyboardInput()" (ngModelChange)="captureKeyboardInput.set($event)" /> Capture Keyboard Input</label>
-        <label><input type="checkbox" [ngModel]="highlightClicks()" (ngModelChange)="highlightClicks.set($event)" /> Highlight Clicks</label>
-        <label><input type="checkbox" [ngModel]="captureAudio()" (ngModelChange)="captureAudio.set($event)" /> Record Audio Commentary</label>
-      </div>
-
-      <div class="card login-info">
-        <h3>Manual Login Mode</h3>
-        <p>Complete the login manually. Recording starts only when you click <strong>Start Shadow</strong>.</p>
-      </div>
+      }
 
       @if (error()) {
         <div class="error-banner">{{ error() }}</div>
@@ -410,3 +438,33 @@
     </aside>
   </div>
 </section>
+
+@if (apiModalOpen()) {
+<div class="modal-backdrop">
+  <div class="modal-content" style="max-width: 600px;">
+    <div class="modal-header">
+      <h2>Upload CSV via API</h2>
+      <button class="close-btn" (click)="closeApiModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <p style="margin-top: 0;">Use the following cURL command to programmatically upload your CSV data to this workspace.</p>
+
+      <div style="margin-bottom: 16px;">
+        <strong>API Secret Key</strong>
+        <div style="background: #f5f5f5; padding: 8px; border-radius: 4px; font-family: monospace; border: 1px solid #ddd; margin-top: 4px; color: #333;">
+          {{ workspaceStatus()?.apiKey || 'UNKNOWN' }}
+        </div>
+      </div>
+
+      <div style="margin-bottom: 16px;">
+        <strong>cURL Request</strong>
+        <div style="background: #f5f5f5; padding: 8px; border-radius: 4px; font-family: monospace; border: 1px solid #ddd; margin-top: 4px; white-space: pre-wrap; word-break: break-all; color: #333;">curl -X POST -H "Authorization: Bearer {{ workspaceStatus()?.apiKey || 'UNKNOWN' }}" -F "file=&#64;data.csv" {{ windowLocationOrigin }}/api/v1/workspaces/{{ workspaceId() }}/upload-csv</div>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end;">
+        <button class="btn btn-primary" (click)="copyApiCurl()">Copy cURL</button>
+      </div>
+    </div>
+  </div>
+</div>
+}

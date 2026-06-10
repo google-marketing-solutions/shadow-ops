@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -368,3 +370,34 @@ func (s *Server) handleScriptCancel(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
+
+func (s *Server) handleListDefaultScripts(w http.ResponseWriter, r *http.Request) {
+	dir := filepath.Join(s.repoRoot, "backend", "default-playwright-scripts")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"items": []map[string]any{}})
+		return
+	}
+
+	var items []map[string]any
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".py") {
+			continue
+		}
+		content, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		if err != nil {
+			continue
+		}
+		items = append(items, map[string]any{
+			"filename": entry.Name(),
+			"source":   string(content),
+		})
+	}
+
+	if items == nil {
+		items = []map[string]any{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+

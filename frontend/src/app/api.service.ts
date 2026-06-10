@@ -18,12 +18,16 @@ export class ApiService {
   private readonly http = inject(HttpClient);
   readonly baseUrl = '/api/v1';
 
-  health(): Observable<{ok: boolean}> {
-    return this.http.get<{ok: boolean}>(`${this.baseUrl}/health`);
+  health(): Observable<{ok: boolean; shadowopsEnabled?: boolean}> {
+    return this.http.get<{ok: boolean; shadowopsEnabled?: boolean}>(`${this.baseUrl}/health`);
   }
 
   listWorkspaces(): Observable<{items: WorkspaceSummary[]}> {
     return this.http.get<{items: WorkspaceSummary[]}>(`${this.baseUrl}/workspaces`);
+  }
+
+  listDefaultScripts(): Observable<{items: Array<{filename: string; source: string}>}> {
+    return this.http.get<{items: Array<{filename: string; source: string}>}>(`${this.baseUrl}/default-scripts`);
   }
 
   createWorkspace(targetApp = 'google_ads'): Observable<{workspaceId: string; status: string}> {
