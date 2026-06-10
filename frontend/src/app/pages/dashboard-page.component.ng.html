@@ -1,0 +1,99 @@
+<section class="dashboard-grid">
+  <aside class="side-rail">
+    <button class="new-workspace-btn" type="button" (click)="newWorkspace()" [disabled]="creatingWorkspace()">
+      {{ creatingWorkspace() ? 'Launching...' : '+ New Workspace' }}
+    </button>
+
+    <div class="rail-group">
+      <div class="rail-title">Platform</div>
+      <button class="rail-item active" type="button">Dashboard</button>
+      <button class="rail-item" type="button" routerLink="/action-sets">Action Sets</button>
+    </div>
+  </aside>
+
+  <div class="dashboard-main">
+    <div class="metric-row">
+      <article class="metric-card">
+        <h3>Active Workspaces</h3>
+        <p class="metric-value">{{ workspaces().length }}</p>
+        <p>{{ runningWorkspaceCount() }} currently running automation</p>
+      </article>
+      <article class="metric-card">
+        <h3>Action Sets</h3>
+        <p class="metric-value">{{ actionSets().length }}</p>
+        <p>Reusable Shadows saved in library</p>
+      </article>
+    </div>
+
+    <section class="panel">
+      <div class="panel-header">
+        <h2>Recent Workspaces</h2>
+        <button type="button" class="ghost" (click)="refresh()">Refresh</button>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Workspace Name</th>
+              <th>Status</th>
+              <th>Last URL</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (ws of workspaces(); track ws.workspaceId) {
+              <tr>
+                <td>
+                  <div class="workspace-name">
+                    <span class="workspace-badge">{{ ws.workspaceId.slice(-2).toUpperCase() }}</span>
+                    <div>
+                      <div>{{ ws.name || ws.workspaceId }}</div>
+                      <small>{{ ws.workspaceId }} · {{ ws.createdAt | date:'MMM d, y, h:mm a' }}</small>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <span class="status-chip" [ngClass]="statusClass(ws.status)">
+                    {{ ws.status }}
+                  </span>
+                </td>
+                <td class="url-cell">{{ ws.currentUrl || '—' }}</td>
+                <td><button type="button" class="link-btn" (click)="goToWorkspace(ws)">Open →</button></td>
+              </tr>
+            } @empty {
+              <tr>
+                <td colspan="4" class="empty">No workspaces yet. Launch one to start Phase 1.</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="library-preview panel">
+      <div class="panel-header">
+        <h2>Saved Action Sets</h2>
+        <a routerLink="/action-sets" class="link-btn">Manage</a>
+      </div>
+      <div class="action-list">
+        @for (action of topActionSets(); track action.id) {
+          <article class="action-card">
+            <div class="action-icon">⟲</div>
+            <div>
+              <h3>{{ action.name }}</h3>
+              <p>{{ action.target_app }} · v{{ action.version }} · {{ action.status }}</p>
+            </div>
+            <div class="action-meta">{{ action.updated_at | date:'short' }}</div>
+          </article>
+        } @empty {
+          <div class="empty-state">No saved action sets yet. Finish a Shadow recording and save it.</div>
+        }
+      </div>
+    </section>
+
+    @if (error()) {
+      <div class="error-banner">{{ error() }}</div>
+    }
+  </div>
+</section>

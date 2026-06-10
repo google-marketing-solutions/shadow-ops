@@ -1,0 +1,23 @@
+<div class="app-shell">
+  <header class="top-nav">
+    <a class="brand" routerLink="/dashboard">
+      <span class="brand-mark"></span>
+      <span>ShadowOps</span>
+    </a>
+
+    <nav class="nav-links">
+      <a routerLink="/dashboard" routerLinkActive="active">Dashboard</a>
+      <a routerLink="/action-sets" routerLinkActive="active">Action Sets</a>
+    </nav>
+
+    <div class="nav-actions">
+      <button type="button" class="icon-btn" title="Home">⌂</button>
+      <button type="button" class="icon-btn" title="Notes">💬</button>
+      <div class="avatar">A</div>
+    </div>
+  </header>
+
+  <main class="app-body">
+    <router-outlet />
+  </main>
+</div>

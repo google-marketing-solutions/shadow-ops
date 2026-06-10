@@ -1,0 +1,112 @@
+:host {
+  display: block;
+  min-height: 100vh;
+}
+
+.app-shell {
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text-primary);
+}
+
+.top-nav {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.85rem 2rem;
+  border-bottom: 1px solid var(--border);
+    background: #ffffff;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--text-primary);
+  text-decoration: none;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-size: 1.65rem;
+}
+
+.brand-mark {
+  width: 18px;
+  height: 18px;
+  display: inline-block;
+  background: conic-gradient(from 210deg, #f29900, #1e8e3e 25%, #1a73e8 50%, #d93025 75%, #f29900 100%);
+  clip-path: polygon(50% 0%, 100% 20%, 62% 95%, 38% 95%, 0% 20%);
+}
+
+.nav-links {
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.nav-links a {
+  color: var(--text-muted);
+  text-decoration: none;
+  padding: 0.65rem 1rem;
+  border-radius: 0.65rem;
+  font-weight: 600;
+}
+
+.nav-links a.active,
+.nav-links a:hover {
+  color: var(--primary-blue);
+    background: #e8f0fe;
+}
+
+.nav-links a.muted {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.nav-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.icon-btn,
+.avatar {
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: 0.7rem;
+  border: 1px solid var(--border);
+    background: #ffffff;
+    color: var(--text-muted);
+  display: grid;
+  place-items: center;
+}
+
+.avatar {
+  border-radius: 999px;
+  background: linear-gradient(180deg, #fbe6cd, #d9c3a8);
+  color: #2c251d;
+  font-weight: 700;
+}
+
+.app-body {
+  padding: 1rem 2rem 2rem;
+}
+
+@media (max-width: 900px) {
+  .top-nav {
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      'brand actions'
+      'nav nav';
+    row-gap: 0.75rem;
+    padding: 1rem;
+  }
+
+  .brand { grid-area: brand; font-size: 1.3rem; }
+  .nav-actions { grid-area: actions; }
+  .nav-links { grid-area: nav; justify-content: flex-start; overflow-x: auto; }
+  .app-body { padding: 0.75rem 1rem 1.5rem; }
+}

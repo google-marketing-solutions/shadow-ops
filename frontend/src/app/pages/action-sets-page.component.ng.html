@@ -1,0 +1,78 @@
+<section class="action-sets-page">
+  <div class="page-header">
+    <div>
+      <h1>Action Set Library</h1>
+      <p>Manage and organize your automated workflow shadows.</p>
+    </div>
+    <div class="header-actions">
+      <label class="search">
+        <span>⌕</span>
+        <input [ngModel]="query()" (ngModelChange)="query.set($event)" placeholder="Search shadows..." />
+      </label>
+      <button type="button" class="primary">+ New Action Set</button>
+    </div>
+  </div>
+
+  <div class="stats-row">
+    <article class="stat-card">
+      <div>Total Action Sets</div>
+      <strong>{{ actionSets().length }}</strong>
+    </article>
+    <article class="stat-card">
+      <div>Active Shadows</div>
+      <strong>{{ activeCount() }}</strong>
+    </article>
+    <article class="stat-card">
+      <div>Drafts</div>
+      <strong>{{ draftCount() }}</strong>
+    </article>
+    <article class="stat-card">
+      <div>Last Edited</div>
+      <strong>{{ lastEditedAt() ? (lastEditedAt() | date:'short') : '—' }}</strong>
+    </article>
+  </div>
+
+  <div class="tabs">
+    <button class="active" type="button">All Shadows</button>
+    <button type="button">Recently Used</button>
+    <button type="button">Favorites</button>
+    <button type="button">Archived</button>
+  </div>
+
+  @if (loading()) {
+    <div class="empty-state">Loading action sets…</div>
+  } @else {
+    <div class="card-grid">
+      @for (item of filtered(); track item.id) {
+        <article class="shadow-card">
+          <div class="shadow-card-top">
+            <div class="shadow-icon">⟲</div>
+            <div class="menu-container">
+              <button class="dot-btn" type="button">⋮</button>
+              <div class="menu">
+                <a [routerLink]="['/action-sets', item.id]">View/Edit</a>
+                <button type="button" (click)="deleteActionSet(item)">Delete</button>
+              </div>
+            </div>
+          </div>
+          <h3><a [routerLink]="['/action-sets', item.id]">{{ item.name }}</a></h3>
+          <p>{{ item.target_app }} · {{ stepCount(item) }} steps · v{{ item.version }}</p>
+          <div class="tags">
+            <span class="tag">Phase 1</span>
+            <span class="tag status">{{ item.status }}</span>
+          </div>
+          <div class="shadow-card-footer">
+            <small>{{ item.updated_at | date:'medium' }}</small>
+            <a [routerLink]="['/action-sets', item.id]" class="edit-btn">Edit</a>
+          </div>
+        </article>
+      } @empty {
+        <article class="shadow-card ghost-card">
+          <div class="ghost-plus">+</div>
+          <h3>Create New Action Set</h3>
+          <p>Record a Shadow in the workspace, then save it here.</p>
+        </article>
+      }
+    </div>
+  }
+</section>

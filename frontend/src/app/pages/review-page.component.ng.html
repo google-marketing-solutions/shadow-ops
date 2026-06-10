@@ -1,0 +1,168 @@
+<section class="review-page">
+  <header class="review-header">
+    <div class="left">
+      <a routerLink="/action-sets" class="back-link">←</a>
+      <div>
+        <h1>Action Inspector</h1>
+        <p>
+          @if (actionSetId()) {
+            <span class="mono-pill">SET ID: {{ actionSetId() }}</span>
+          } @else {
+            <span class="mono-pill">WORKSPACE: {{ workspaceId() }}</span>
+          }
+        </p>
+      </div>
+    </div>
+    <div class="actions">
+      @if (!actionSetId()) {
+        <a [routerLink]="['/workspaces', workspaceId()]" class="ghost-link">Discard</a>
+      }
+      <button type="button" class="save-btn" (click)="saveActionSet()" [disabled]="saving() || !steps().length">
+        {{ saving() ? 'Saving…' : 'Save Action Set' }}
+      </button>
+    </div>
+  </header>
+
+  @if (error()) {
+    <div class="review-banner error-banner">
+      {{ error() }}
+    </div>
+  }
+  @if (savedMessage()) {
+    <div class="review-banner success-banner">
+      {{ savedMessage() }}
+    </div>
+  }
+
+  <div class="review-layout">
+    <!-- LEFT: Steps List -->
+    <aside class="sidebar">
+      <div class="meta-card">
+        <label>
+          <span>Action Set Name</span>
+          <input [ngModel]="actionSetName()" (ngModelChange)="actionSetName.set($event)" />
+        </label>
+        <div class="meta-grid">
+          <div>
+            <span class="meta-label">App</span>
+            <div class="meta-box">{{ targetApp() }}</div>
+          </div>
+          <div>
+            <span class="meta-label">Total Steps</span>
+            <div class="meta-box mono">{{ steps().length }}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="steps-card">
+        <div class="steps-card-header">
+          <h2>Timeline</h2>
+          <button type="button" class="copy-json-btn" (click)="copyFullJson()" title="Copy Full Action Set JSON">
+            📋 JSON
+          </button>
+        </div>
+
+        <div class="steps-list">
+          @for (step of steps(); track step.stepIndex) {
+            <article class="step-item" [class.selected]="selectedStepIndex() === step.stepIndex" (click)="selectedStepIndex.set(step.stepIndex)">
+              <div class="step-index">{{ step.stepIndex }}</div>
+              <div class="step-content">
+                <h3>{{ stepSummary(step) }}</h3>
+                <div class="code-pill">{{ stepLocator(step) }}</div>
+                <div class="step-actions">
+                  <button type="button" (click)="$event.stopPropagation(); moveStep(step.stepIndex, -1)">↑</button>
+                  <button type="button" (click)="$event.stopPropagation(); moveStep(step.stepIndex, 1)">↓</button>
+                  <button type="button" class="danger" (click)="$event.stopPropagation(); removeStep(step.stepIndex)">✕</button>
+                </div>
+              </div>
+            </article>
+          } @empty {
+            <div class="empty-state">No steps found.</div>
+          }
+        </div>
+      </div>
+    </aside>
+
+    <!-- RIGHT: Inspector and Editor -->
+    <main class="main-content">
+
+      <!-- TOP: JSON Inspector (Replaces Preview Canvas) -->
+      <section class="inspector-panel">
+        <div class="panel-header">
+          <h2>Step Inspector</h2>
+          <div class="step-pill">STEP {{ selectedStep().stepIndex || 1 }}</div>
+        </div>
+        <div class="inspector-body">
+          <div class="json-container">
+            <pre><code>{{ selectedStepJson() }}</code></pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- BOTTOM: Playwright Script Editor -->
+      <section class="script-panel">
+        <div class="panel-header">
+          <div class="header-main">
+            <h2>Playwright Script (Python)</h2>
+            <label class="feedback-toggle">
+              <input type="checkbox" [ngModel]="includeFeedback()" (ngModelChange)="includeFeedback.set($event)" />
+              <span>Fix with feedback</span>
+            </label>
+          </div>
+          <div class="script-actions">
+            <button type="button" class="action-btn secondary" (click)="generateScript()" [disabled]="!actionSetId() || generatingScript()">
+              {{ generatingScript() ? 'AI Writing…' : (includeFeedback() ? 'Fix with AI' : 'Regenerate') }}
+            </button>
+
+            @if (playwrightScript()) {
+              <button type="button" class="action-btn secondary" (click)="toggleScriptEdit()">
+                {{ isEditingScript() ? 'Preview' : 'Edit Code' }}
+              </button>
+              <button type="button" class="action-btn primary" (click)="saveScript()" [disabled]="savingScript()">
+                {{ savingScript() ? 'Saving…' : 'Save Script' }}
+              </button>
+            }
+          </div>
+        </div>
+
+        @if (includeFeedback()) {
+          <div class="feedback-inputs">
+            <div class="input-group">
+              <label>Error Message</label>
+              <input [ngModel]="feedbackError()" (ngModelChange)="feedbackError.set($event)" placeholder="e.g. TimeoutError: waiting for locator..." />
+            </div>
+            <div class="input-group">
+              <label>Execution Logs</label>
+              <textarea [ngModel]="feedbackLogs()" (ngModelChange)="feedbackLogs.set($event)" placeholder="Paste relevant logs here..."></textarea>
+            </div>
+          </div>
+        }
+
+        <div class="script-body">
+          @if (playwrightScript()) {
+            @if (isEditingScript()) {
+              <textarea
+                class="editor-textarea"
+                [ngModel]="playwrightScript()"
+                (ngModelChange)="onScriptChange($event)"
+              ></textarea>
+            } @else {
+              <div class="code-container">
+                <pre><code #codeBlock class="language-python">{{ playwrightScript() }}</code></pre>
+              </div>
+            }
+          } @else {
+            <div class="empty-state">
+              @if (generatingScript()) {
+                <div class="loading-pulse">Generating script with Gemini AI...</div>
+              } @else {
+                <p>Save the Action Set to enable AI script generation.</p>
+              }
+            </div>
+          }
+        </div>
+      </section>
+
+    </main>
+  </div>
+</section>
