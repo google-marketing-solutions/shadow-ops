@@ -1,0 +1,88 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"os/exec"
+	"path/filepath"
+	"strings"
+)
+
+func (s *Server) ensureWorkspaceImage() error {
+	s.imageBuildOnce.Do(func() {
+		if _, err := exec.LookPath("docker"); err != nil {
+			s.imageBuildErr = fmt.Errorf("docker CLI not found: %w", err)
+			return
+		}
+		if _, stderr, err := s.runCmd(s.repoRoot, "docker", "info"); err != nil {
+			s.imageBuildErr = fmt.Errorf("docker daemon unavailable: %v (%s)", err, strings.TrimSpace(stderr))
+			return
+		}
+		buildDir := filepath.Join(s.repoRoot, "workspace-agent")
+		_, stderr, err := s.runCmd(buildDir, "docker", "build", "-t", "shadowops-workspace-agent:dev", "-f", "Dockerfile", ".")
+		if err != nil {
+			s.imageBuildErr = fmt.Errorf("docker build failed: %v (%s)", err, strings.TrimSpace(stderr))
+			return
+		}
+	})
+	return s.imageBuildErr
+}
+
+func (s *Server) runWorkspaceContainer(workspaceID string, hostPort int) (string, error) {
+	name := "shadowops-" + strings.ReplaceAll(workspaceID, "_", "-")
+	
+	reqBody := map[string]any{
+		"token":          "dummy",
+		"port":           hostPort,
+		"containerName":  name,
+		"containerImage": "shadowops-workspace-agent:dev",
+	}
+	
+	respBody, statusCode, err := s.callHostAgent(context.Background(), "POST", "/containers", reqBody)
+	if err != nil {
+		return "", fmt.Errorf("host agent call failed: %w", err)
+	}
+	if statusCode >= 300 {
+		return "", fmt.Errorf("host agent returned status %d: %s", statusCode, string(respBody))
+	}
+	
+	var resp struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(respBody, &resp); err != nil {
+		return "", fmt.Errorf("failed to parse host agent response: %w", err)
+	}
+	
+	return resp.ID, nil
+}
+
+func (s *Server) removeWorkspaceContainer(ws *Workspace) error {
+	ws.mu.RLock()
+	containerID := ws.DockerContainerID
+	ws.mu.RUnlock()
+	if strings.TrimSpace(containerID) == "" {
+		return nil
+	}
+	
+	respBody, statusCode, err := s.callHostAgent(context.Background(), "DELETE", "/containers/"+containerID, nil)
+	if err != nil {
+		return fmt.Errorf("host agent call failed: %w", err)
+	}
+	if statusCode >= 300 {
+		return fmt.Errorf("host agent returned status %d: %s", statusCode, string(respBody))
+	}
+	
+	return nil
+}
+
+func (s *Server) runCmd(dir string, name string, args ...string) (string, string, error) {
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	return stdout.String(), stderr.String(), err
+}

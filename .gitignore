@@ -1,0 +1,24 @@
+# OS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Node
+node_modules/
+.angular/
+
+# Go
+backend/backend
+
+# Python
+__pycache__/
+*.pyc
+.venv-agent/
+
+# Data
+data/
+
+# Logs
+*.log

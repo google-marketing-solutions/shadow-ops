@@ -1,0 +1,11 @@
+.gcloudignore
+.git
+.gitignore
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.angular/
+backend/backend_bin
+backend/server
+.venv-agent/
+data/

@@ -1,0 +1,189 @@
+package main
+
+import (
+	"encoding/json"
+	"log"
+	"net/http"
+	"net/url"
+	"sync"
+	"time"
+
+	"github.com/gorilla/websocket"
+)
+
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool { return true },
+}
+
+type WSClient struct {
+	conn *websocket.Conn
+	mu   sync.Mutex
+}
+
+func (s *Server) handleWorkspaceWS(w http.ResponseWriter, r *http.Request) {
+	ws, ok := s.getWorkspace(r.PathValue("workspaceId"))
+	if !ok {
+		writeError(w, http.StatusNotFound, "WORKSPACE_NOT_FOUND", "workspace not found")
+		return
+	}
+
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("ws upgrade error: %v", err)
+		return
+	}
+	client := &WSClient{conn: conn}
+	ws.mu.Lock()
+	ws.clients[client] = struct{}{}
+	snapshot := map[string]any{
+		"type":           "workspace.status",
+		"status":         ws.Status,
+		"recordingState": ws.RecordingState,
+		"currentUrl":     ws.CurrentURL,
+	}
+	ws.mu.Unlock()
+
+	_ = client.writeJSON(snapshot)
+
+	defer func() {
+		ws.mu.Lock()
+		delete(ws.clients, client)
+		ws.mu.Unlock()
+		_ = conn.Close()
+	}()
+
+	for {
+		_, payload, err := conn.ReadMessage()
+		if err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				log.Printf("frontend ws read error: %v", err)
+			}
+			return
+		}
+		var msg map[string]any
+		if err := json.Unmarshal(payload, &msg); err != nil {
+			_ = client.writeJSON(map[string]any{"type": "error", "code": "INVALID_WS_MESSAGE", "message": "Invalid JSON"})
+			continue
+		}
+		if err := s.agentPostJSON(ws, "/input", msg, nil); err != nil {
+			_ = client.writeJSON(map[string]any{"type": "error", "code": "AGENT_INPUT_FAILED", "message": err.Error()})
+			continue
+		}
+	}
+}
+
+func (s *Server) consumeAgentEvents(ws *Workspace) {
+	u, _ := url.Parse(ws.AgentBaseURL)
+	u.Scheme = "ws"
+	u.Path = "/events"
+
+	for {
+		ws.mu.RLock()
+		status := ws.Status
+		ws.mu.RUnlock()
+		if status == "killed" {
+			return
+		}
+
+		conn, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
+		if err != nil {
+			log.Printf("agent events dial failed (%s): %v", ws.ID, err)
+			s.broadcastEvent(ws, map[string]any{"type": "error", "code": "WORKSPACE_DISCONNECTED", "message": "Workspace agent disconnected"})
+			time.Sleep(2 * time.Second)
+			continue
+		}
+
+		for {
+			_, payload, err := conn.ReadMessage()
+			if err != nil {
+				log.Printf("agent events read ended (%s): %v", ws.ID, err)
+				s.broadcastEvent(ws, map[string]any{"type": "error", "code": "WORKSPACE_DISCONNECTED", "message": "Workspace agent disconnected"})
+				conn.Close()
+				break
+			}
+			s.processAgentEvent(ws, payload)
+			s.broadcastRaw(ws, payload)
+		}
+
+		time.Sleep(1 * time.Second)
+	}
+}
+
+func (s *Server) processAgentEvent(ws *Workspace, payload []byte) {
+	var msg map[string]any
+	if err := json.Unmarshal(payload, &msg); err != nil {
+		return
+	}
+	typ, _ := msg["type"].(string)
+	switch typ {
+	case "workspace.status":
+		ws.mu.Lock()
+		if v, ok := msg["status"].(string); ok && v != "" {
+			ws.Status = v
+		}
+		if v, ok := msg["recordingState"].(string); ok && v != "" {
+			ws.RecordingState = v
+		}
+		if v, ok := msg["currentUrl"].(string); ok {
+			ws.CurrentURL = v
+		}
+		ws.UpdatedAt = time.Now().UTC()
+		ws.mu.Unlock()
+	case "shadow.step":
+		step, ok := msg["step"].(map[string]any)
+		if !ok {
+			return
+		}
+		ws.mu.Lock()
+		idx := int(numberToFloat(step["stepIndex"]))
+		if idx <= 0 {
+			idx = len(ws.steps) + 1
+			step["stepIndex"] = idx
+		}
+		if idx-1 < len(ws.steps) {
+			ws.steps[idx-1] = deepCopyStep(step)
+		} else if idx-1 == len(ws.steps) {
+			ws.steps = append(ws.steps, deepCopyStep(step))
+		} else {
+			for len(ws.steps) < idx-1 {
+				ws.steps = append(ws.steps, map[string]any{"stepIndex": len(ws.steps) + 1, "type": "noop"})
+			}
+			ws.steps = append(ws.steps, deepCopyStep(step))
+		}
+		ws.mu.Unlock()
+	}
+}
+
+func (s *Server) broadcastEvent(ws *Workspace, msg map[string]any) {
+	payload, _ := json.Marshal(msg)
+	s.broadcastRaw(ws, payload)
+}
+
+func (s *Server) broadcastRaw(ws *Workspace, payload []byte) {
+	ws.mu.RLock()
+	clients := make([]*WSClient, 0, len(ws.clients))
+	for c := range ws.clients {
+		clients = append(clients, c)
+	}
+	ws.mu.RUnlock()
+	for _, c := range clients {
+		if err := c.writeRaw(payload); err != nil {
+			ws.mu.Lock()
+			delete(ws.clients, c)
+			ws.mu.Unlock()
+			_ = c.conn.Close()
+		}
+	}
+}
+
+func (c *WSClient) writeJSON(v any) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.conn.WriteJSON(v)
+}
+
+func (c *WSClient) writeRaw(payload []byte) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.conn.WriteMessage(websocket.TextMessage, payload)
+}
