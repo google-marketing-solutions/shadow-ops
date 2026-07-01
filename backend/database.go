@@ -44,7 +44,6 @@ func InitDB(dataDir string) *sql.DB {
 		"script_source" TEXT,
 		"csv_filename" TEXT,
 		"csv_data" TEXT,
-		"url_column" TEXT,
 		"created_at" TEXT,
 		"updated_at" TEXT
 	);`

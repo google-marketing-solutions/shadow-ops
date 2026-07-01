@@ -20,7 +20,6 @@ type WorkspaceCron struct {
 	ScriptSource   string `json:"scriptSource"`
 	CsvFilename    string `json:"csvFilename"`
 	CsvData        string `json:"csvData"`
-	UrlColumn      string `json:"urlColumn"`
 	CreatedAt      string `json:"createdAt"`
 	UpdatedAt      string `json:"updatedAt"`
 }
@@ -57,7 +56,7 @@ func (cs *CronScheduler) Start() {
 }
 
 func (cs *CronScheduler) loadAllCrons() {
-	rows, err := cs.server.db.Query("SELECT workspace_id, cron_expression, script_filename, script_source, csv_filename, csv_data, url_column FROM workspace_crons")
+	rows, err := cs.server.db.Query("SELECT workspace_id, cron_expression, script_filename, script_source, csv_filename, csv_data FROM workspace_crons")
 	if err != nil {
 		log.Printf("failed to load crons: %v", err)
 		return
@@ -66,7 +65,7 @@ func (cs *CronScheduler) loadAllCrons() {
 
 	for rows.Next() {
 		var wc WorkspaceCron
-		if err := rows.Scan(&wc.WorkspaceID, &wc.CronExpression, &wc.ScriptFilename, &wc.ScriptSource, &wc.CsvFilename, &wc.CsvData, &wc.UrlColumn); err != nil {
+		if err := rows.Scan(&wc.WorkspaceID, &wc.CronExpression, &wc.ScriptFilename, &wc.ScriptSource, &wc.CsvFilename, &wc.CsvData); err != nil {
 			log.Printf("failed to scan cron: %v", err)
 			continue
 		}
@@ -162,18 +161,6 @@ func (cs *CronScheduler) executeBatch(wc WorkspaceCron) {
 	}
 
 	headers := records[0]
-	urlColIdx := -1
-	for i, h := range headers {
-		if h == wc.UrlColumn {
-			urlColIdx = i
-			break
-		}
-	}
-
-	if urlColIdx == -1 {
-		cs.finishExecution(execID, "failed", "url column not found")
-		return
-	}
 
 	// We will append new columns dynamically
 	newHeaders := append([]string{}, headers...)
@@ -190,14 +177,13 @@ func (cs *CronScheduler) executeBatch(wc WorkspaceCron) {
 		}
 
 		row := records[i]
-		if len(row) <= urlColIdx {
-			outputRecords = append(outputRecords, row)
-			continue
-		}
-		url := row[urlColIdx]
-		if url == "" {
-			outputRecords = append(outputRecords, row)
-			continue
+		inputs := make(map[string]any)
+		for idx, h := range headers {
+			if idx < len(row) {
+				inputs[h] = row[idx]
+			} else {
+				inputs[h] = ""
+			}
 		}
 
 		// Run script
@@ -207,9 +193,9 @@ func (cs *CronScheduler) executeBatch(wc WorkspaceCron) {
 			scriptName = "cron_automation.py"
 		}
 		err := cs.server.agentPostJSON(ws, "/script/run", map[string]any{
-			"filename":  scriptName,
-			"script":    wc.ScriptSource,
-			"targetUrl": url,
+			"filename": scriptName,
+			"script":   wc.ScriptSource,
+			"inputs":   inputs,
 		}, &resp)
 
 		if err != nil {

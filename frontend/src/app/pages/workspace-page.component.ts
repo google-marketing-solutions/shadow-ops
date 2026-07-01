@@ -30,6 +30,9 @@ import {
 } from '../types';
 import {WorkspaceSocketService} from '../workspace-socket.service';
 
+const STATUS_SUCCEEDED = 'succeeded';
+const STATUS_FAILED = 'failed';
+
 /**
  * WorkspacePageComponent renders the real-time interactive browser viewport,
  * input forwarder, batch CSV runner, cron scheduler, and live session stream.
@@ -89,7 +92,6 @@ export class WorkspacePageComponent implements AfterViewInit, OnDestroy {
   readonly csvFile = signal<File | null>(null);
   readonly csvData = signal<Array<Record<string, unknown>>>([]);
   readonly csvColumns = signal<string[]>([]);
-  readonly selectedUrlColumn = signal<string>('');
   readonly batchRunning = signal(false);
   readonly batchProgress = signal({ current: 0, total: 0 });
 
@@ -474,10 +476,14 @@ export class WorkspacePageComponent implements AfterViewInit, OnDestroy {
     this.scriptSubmitting.set(true);
     this.scriptPanelError.set(null);
 
+    const filename = this.scriptFilename().trim() || 'script.py';
+    const targetUrl = this.scriptTargetUrl().trim() || this.currentUrl();
+
     this.api.runWorkspaceScript(workspaceId, {
-      filename: this.scriptFilename().trim() || 'script.py',
+      filename,
       script: scriptSource,
-      targetUrl: this.scriptTargetUrl().trim() || this.currentUrl()
+      targetUrl,
+      inputs: targetUrl ? { URL: targetUrl, url: targetUrl } : undefined
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
@@ -535,7 +541,7 @@ export class WorkspacePageComponent implements AfterViewInit, OnDestroy {
   saveCronSchedule(): void {
     const workspaceId = this.workspaceId();
     const expr = this.cronExpression().trim();
-    if (!workspaceId || !expr || !this.csvData().length || !this.selectedUrlColumn() || !this.scriptSource().trim()) return;
+    if (!workspaceId || !expr || !this.csvData().length || !this.scriptSource().trim()) return;
 
     const csvContent = Papa.unparse(this.csvData());
     const payload = {
@@ -768,7 +774,6 @@ export class WorkspacePageComponent implements AfterViewInit, OnDestroy {
       this.csvFile.set(null);
       this.csvData.set([]);
       this.csvColumns.set([]);
-      this.selectedUrlColumn.set('');
       return;
     }
     this.csvFile.set(file);
@@ -778,9 +783,6 @@ export class WorkspacePageComponent implements AfterViewInit, OnDestroy {
       complete: (results: Papa.ParseResult<Record<string, unknown>>) => {
         this.csvData.set(results.data || []);
         this.csvColumns.set(results.meta.fields || []);
-        if (results.meta.fields?.length) {
-          this.selectedUrlColumn.set(results.meta.fields[0]);
-        }
       },
       error: (error: Error) => {
         this.scriptPanelError.set(`Failed to parse CSV: ${error.message}`);
@@ -790,8 +792,8 @@ export class WorkspacePageComponent implements AfterViewInit, OnDestroy {
 
   async runBatch(): Promise<void> {
     if (!this.workspaceId() || this.batchRunning() || this.scriptRunning()) return;
-    if (!this.csvData().length || !this.selectedUrlColumn()) {
-      this.scriptPanelError.set('Please load a CSV and select a URL column');
+    if (!this.csvData().length) {
+      this.scriptPanelError.set('Please load a CSV file first');
       return;
     }
     if (!this.scriptSource().trim()) {
@@ -802,23 +804,18 @@ export class WorkspacePageComponent implements AfterViewInit, OnDestroy {
     this.batchRunning.set(true);
     this.scriptPanelError.set(null);
     const data = [...this.csvData()];
-    const urlCol = this.selectedUrlColumn();
 
     for (let i = 0; i < data.length; i++) {
       if (!this.batchRunning()) break;
       this.batchProgress.set({ current: i + 1, total: data.length });
 
       const row = { ...data[i] };
-      const url = String(row[urlCol] ?? '');
-      if (!url) continue;
-
-      this.scriptTargetUrl.set(url);
 
       try {
-        await this.runScriptAndWait();
+        await this.runScriptAndWait(row);
         const status = this.scriptStatusState();
 
-        if (status.status === 'succeeded' && status.result) {
+        if (status.status === STATUS_SUCCEEDED && status.result) {
           const resultObj = typeof status.result === 'string' ? JSON.parse(status.result) : status.result;
           if (typeof resultObj === 'object' && resultObj !== null) {
             const flattenObject = (obj: Record<string, unknown>, prefix = ''): Record<string, unknown> => {
@@ -828,7 +825,11 @@ export class WorkspacePageComponent implements AfterViewInit, OnDestroy {
                 if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
                   Object.assign(acc, flattenObject(val as Record<string, unknown>, pre + key));
                 } else {
-                  acc[pre + key] = typeof val === 'object' && val !== null ? JSON.stringify(val) : val;
+                  if (typeof val === 'object' && val !== null) {
+                    acc[pre + key] = JSON.stringify(val);
+                  } else {
+                    acc[pre + key] = val;
+                  }
                 }
                 return acc;
               }, {});
@@ -840,7 +841,7 @@ export class WorkspacePageComponent implements AfterViewInit, OnDestroy {
           } else {
             row['Result'] = status.result;
           }
-        } else if (status.status === 'failed') {
+        } else if (status.status === STATUS_FAILED) {
           row['Error'] = status.error || 'Script failed without error message';
         } else {
           row['Error'] = `Script ended with status: ${status.status}`;
@@ -857,7 +858,7 @@ export class WorkspacePageComponent implements AfterViewInit, OnDestroy {
     this.downloadBatchResults();
   }
 
-  private async runScriptAndWait(): Promise<void> {
+  private async runScriptAndWait(inputs?: Record<string, unknown>): Promise<void> {
     return new Promise((resolve) => {
       const workspaceId = this.workspaceId();
       const scriptSource = this.scriptSource().trim();
@@ -867,7 +868,8 @@ export class WorkspacePageComponent implements AfterViewInit, OnDestroy {
       this.api.runWorkspaceScript(workspaceId, {
         filename,
         script: scriptSource,
-        targetUrl
+        targetUrl,
+        inputs: inputs ?? (targetUrl ? { URL: targetUrl, url: targetUrl } : undefined)
       })
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({

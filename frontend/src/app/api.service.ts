@@ -58,7 +58,7 @@ export class ApiService {
     return this.http.get<{captureSessionId?: string; steps: ShadowStep[]}>(`${this.baseUrl}/workspaces/${workspaceId}/shadow/actions`);
   }
 
-  runWorkspaceScript(workspaceId: string, payload: {filename: string; script: string; targetUrl: string}): Observable<{ok: boolean; runId: string; status: string}> {
+  runWorkspaceScript(workspaceId: string, payload: {filename: string; script: string; targetUrl?: string; inputs?: Record<string, unknown>}): Observable<{ok: boolean; runId: string; status: string}> {
     return this.http.post<{ok: boolean; runId: string; status: string}>(`${this.baseUrl}/workspaces/${workspaceId}/script/run`, payload);
   }
 

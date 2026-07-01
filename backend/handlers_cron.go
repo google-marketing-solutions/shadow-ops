@@ -12,10 +12,10 @@ func (s *Server) handleGetWorkspaceCron(w http.ResponseWriter, r *http.Request) 
 
 	var wc WorkspaceCron
 	err := s.db.QueryRow(`
-		SELECT workspace_id, cron_expression, script_filename, script_source, csv_filename, csv_data, url_column, created_at, updated_at
+		SELECT workspace_id, cron_expression, script_filename, script_source, csv_filename, csv_data, created_at, updated_at
 		FROM workspace_crons
 		WHERE workspace_id = ?`, workspaceID).Scan(
-		&wc.WorkspaceID, &wc.CronExpression, &wc.ScriptFilename, &wc.ScriptSource, &wc.CsvFilename, &wc.CsvData, &wc.UrlColumn, &wc.CreatedAt, &wc.UpdatedAt,
+		&wc.WorkspaceID, &wc.CronExpression, &wc.ScriptFilename, &wc.ScriptSource, &wc.CsvFilename, &wc.CsvData, &wc.CreatedAt, &wc.UpdatedAt,
 	)
 
 	if err != nil {
@@ -39,7 +39,6 @@ func (s *Server) handleSetWorkspaceCron(w http.ResponseWriter, r *http.Request) 
 		ScriptSource   string `json:"scriptSource"`
 		CsvFilename    string `json:"csvFilename"`
 		CsvData        string `json:"csvData"`
-		UrlColumn      string `json:"urlColumn"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -55,23 +54,21 @@ func (s *Server) handleSetWorkspaceCron(w http.ResponseWriter, r *http.Request) 
 		ScriptSource:   req.ScriptSource,
 		CsvFilename:    req.CsvFilename,
 		CsvData:        req.CsvData,
-		UrlColumn:      req.UrlColumn,
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}
 
 	_, err := s.db.Exec(`
-		INSERT INTO workspace_crons (workspace_id, cron_expression, script_filename, script_source, csv_filename, csv_data, url_column, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO workspace_crons (workspace_id, cron_expression, script_filename, script_source, csv_filename, csv_data, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(workspace_id) DO UPDATE SET
 			cron_expression = excluded.cron_expression,
 			script_filename = excluded.script_filename,
 			script_source = excluded.script_source,
 			csv_filename = excluded.csv_filename,
 			csv_data = excluded.csv_data,
-			url_column = excluded.url_column,
 			updated_at = excluded.updated_at`,
-		wc.WorkspaceID, wc.CronExpression, wc.ScriptFilename, wc.ScriptSource, wc.CsvFilename, wc.CsvData, wc.UrlColumn, wc.CreatedAt, wc.UpdatedAt,
+		wc.WorkspaceID, wc.CronExpression, wc.ScriptFilename, wc.ScriptSource, wc.CsvFilename, wc.CsvData, wc.CreatedAt, wc.UpdatedAt,
 	)
 
 	if err != nil {

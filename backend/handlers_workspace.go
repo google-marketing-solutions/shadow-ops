@@ -319,9 +319,10 @@ func (s *Server) handleScriptRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Filename  string `json:"filename"`
-		Script    string `json:"script"`
-		TargetURL string `json:"targetUrl"`
+		Filename  string         `json:"filename"`
+		Script    string         `json:"script"`
+		TargetURL string         `json:"targetUrl"`
+		Inputs    map[string]any `json:"inputs"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid JSON")
@@ -331,11 +332,17 @@ func (s *Server) handleScriptRun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "script is required")
 		return
 	}
+	if req.Inputs == nil {
+		req.Inputs = make(map[string]any)
+	}
+	if req.TargetURL != "" && req.Inputs["url"] == nil && req.Inputs["URL"] == nil {
+		req.Inputs["url"] = req.TargetURL
+	}
 	var resp map[string]any
 	if err := s.agentPostJSON(ws, "/script/run", map[string]any{
-		"filename":  req.Filename,
-		"script":    req.Script,
-		"targetUrl": req.TargetURL,
+		"filename": req.Filename,
+		"script":   req.Script,
+		"inputs":   req.Inputs,
 	}, &resp); err != nil {
 		writeError(w, http.StatusBadGateway, "SCRIPT_RUN_FAILED", err.Error())
 		return

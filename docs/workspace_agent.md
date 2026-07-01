@@ -28,9 +28,15 @@ When executing a Python Playwright script within the Workspace Agent, the code e
 
 ```python
 async def run(page, context, browser, inputs, helpers):
+    # page: playwright.async_api.Page - The active browser page instance
+    # context: playwright.async_api.BrowserContext - The isolated browser context
+    # browser: playwright.async_api.Browser - The browser instance
+    # inputs: dict - Dictionary containing row columns or UI inputs (e.g., {'URL': 'https://...'})
+    # helpers: ScriptHelpers - A utility class injected for logging and waits
+
     target_url = inputs.get('URL') or inputs.get('url') or ''
     helpers.info(f"Opening target URL: {target_url}")
-    
+
     if target_url:
         await page.goto(target_url, wait_until="domcontentloaded")
         await helpers.sleep(0.5)
