@@ -64,6 +64,7 @@ export interface WorkspaceStatusMessage {
   status: WorkspaceStatus;
   recordingState: RecordingState;
   currentUrl?: string;
+  apiKey?: string;
 }
 
 /** Live shadow step recorded event. */

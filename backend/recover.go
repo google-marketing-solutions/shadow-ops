@@ -77,14 +77,25 @@ func (s *Server) recoverWorkspaces() {
 			clients:           map[*WSClient]struct{}{},
 		}
 
-		var recoveredName string
-		err = s.db.QueryRow(`SELECT name FROM workspaces WHERE id = ?`, workspaceID).Scan(&recoveredName)
-		if err == nil && recoveredName != "" {
-			ws.Name = recoveredName
+		var recoveredName, recoveredAPIKey string
+		err = s.db.QueryRow(`SELECT name, COALESCE(api_key, '') FROM workspaces WHERE id = ?`, workspaceID).Scan(&recoveredName, &recoveredAPIKey)
+		if err == nil {
+			if recoveredName != "" {
+				ws.Name = recoveredName
+			} else {
+				ws.Name = workspaceID
+			}
+			if recoveredAPIKey == "" {
+				ws.APIKey = "sk_" + shortID() + shortID()
+				_, _ = s.db.Exec(`UPDATE workspaces SET api_key = ? WHERE id = ?`, ws.APIKey, workspaceID)
+			} else {
+				ws.APIKey = recoveredAPIKey
+			}
 		} else {
 			ws.Name = workspaceID
-			_, _ = s.db.Exec(`INSERT OR IGNORE INTO workspaces (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)`,
-				workspaceID, workspaceID, time.Now().UTC().Format(time.RFC3339), time.Now().UTC().Format(time.RFC3339))
+			ws.APIKey = "sk_" + shortID() + shortID()
+			_, _ = s.db.Exec(`INSERT OR IGNORE INTO workspaces (id, name, api_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+				workspaceID, workspaceID, ws.APIKey, time.Now().UTC().Format(time.RFC3339), time.Now().UTC().Format(time.RFC3339))
 		}
 
 		s.mu.Lock()

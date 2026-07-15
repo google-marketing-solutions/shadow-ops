@@ -17,6 +17,7 @@ type Workspace struct {
 	ID             string     `json:"workspaceId"`
 	Name           string     `json:"name"`
 	TargetApp      string     `json:"targetApp,omitempty"`
+	APIKey         string     `json:"apiKey,omitempty"`
 	Status         string     `json:"status"`
 	RecordingState string     `json:"recordingState"`
 	CurrentURL     string     `json:"currentUrl,omitempty"`

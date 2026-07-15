@@ -100,6 +100,46 @@ export class WorkspacePageComponent implements AfterViewInit, OnDestroy {
   readonly cronSchedule = signal<WorkspaceCronSchedule | null>(null);
   readonly batchExecutions = signal<BatchExecutionItem[]>([]);
 
+  // API Upload State
+  readonly apiModalOpen = signal(false);
+  readonly apiCurlCopied = signal(false);
+
+  openApiModal(): void {
+    this.apiModalOpen.set(true);
+    this.apiCurlCopied.set(false);
+  }
+
+  closeApiModal(): void {
+    this.apiModalOpen.set(false);
+    this.apiCurlCopied.set(false);
+  }
+
+  copyApiCurl(): void {
+    const workspace = this.workspaceStatus();
+    if (!workspace) return;
+    const apiKey = workspace.apiKey || 'UNKNOWN';
+    const host = window.location.origin;
+    const curlCommand = `curl -X POST -H "Authorization: Bearer ${apiKey}" -F "file=@data.csv" ${host}/api/v1/workspaces/${workspace.workspaceId}/upload-csv`;
+
+    if (!navigator.clipboard) {
+      console.error('Clipboard API not available');
+      return;
+    }
+
+    navigator.clipboard.writeText(curlCommand)
+      .then(() => {
+        this.apiCurlCopied.set(true);
+        setTimeout(() => this.apiCurlCopied.set(false), 3000);
+      })
+      .catch((err) => {
+        console.error('Failed to copy to clipboard', err);
+      });
+  }
+
+  get windowLocationOrigin(): string {
+    return window.location.origin;
+  }
+
   readonly scriptRunning = computed(() => ['running', 'cancelling'].includes(String(this.scriptStatusState().status ?? 'idle')));
   readonly canReview = computed(() => !this.scriptRunning() && this.recordingState() === 'off' && this.steps().length > 0);
   readonly sessionSeconds = computed(() => Math.floor((this.nowMs() - this.sessionStartedAt()) / 1000));

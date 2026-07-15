@@ -68,12 +68,16 @@ func InitDB(dataDir string) *sql.DB {
 		"id" TEXT NOT NULL PRIMARY KEY,
 		"name" TEXT,
 		"target_app" TEXT,
+		"api_key" TEXT,
 		"created_at" TEXT,
 		"updated_at" TEXT
 	);`
 	if _, err := db.Exec(createWorkspacesSQL); err != nil {
 		log.Fatalf("failed to create workspaces table: %v", err)
 	}
+
+	// For existing DBs, attempt to add api_key column safely
+	_, _ = db.Exec(`ALTER TABLE workspaces ADD COLUMN api_key TEXT;`)
 
 	log.Println("Database initialized successfully.")
 	return db

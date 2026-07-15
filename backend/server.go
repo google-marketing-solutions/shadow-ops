@@ -67,6 +67,7 @@ func (s *Server) routes() {
 
 	s.mux.HandleFunc("GET /api/v1/workspaces/{workspaceId}/cron", s.handleGetWorkspaceCron)
 	s.mux.HandleFunc("POST /api/v1/workspaces/{workspaceId}/cron", s.handleSetWorkspaceCron)
+	s.mux.HandleFunc("POST /api/v1/workspaces/{workspaceId}/upload-csv", s.handleUploadWorkspaceCSV)
 	s.mux.HandleFunc("DELETE /api/v1/workspaces/{workspaceId}/cron", s.handleDeleteWorkspaceCron)
 	s.mux.HandleFunc("GET /api/v1/workspaces/{workspaceId}/executions", s.handleListBatchExecutions)
 	s.mux.HandleFunc("GET /api/v1/workspaces/{workspaceId}/executions/{id}/csv", s.handleDownloadBatchExecutionCsv)

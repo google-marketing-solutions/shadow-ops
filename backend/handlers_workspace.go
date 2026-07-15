@@ -19,6 +19,7 @@ func (s *Server) handleListWorkspaces(w http.ResponseWriter, r *http.Request) {
 		item := map[string]any{
 			"workspaceId":    ws.ID,
 			"name":           ws.Name,
+			"apiKey":         ws.APIKey,
 			"status":         ws.Status,
 			"recordingState": ws.RecordingState,
 			"currentUrl":     ws.CurrentURL,
@@ -82,6 +83,7 @@ func (s *Server) handleCreateWorkspace(w http.ResponseWriter, r *http.Request) {
 		ID:                id,
 		Name:              req.Name,
 		TargetApp:         req.TargetApp,
+		APIKey:            "sk_" + shortID() + shortID(),
 		Status:            "launching",
 		RecordingState:    "off",
 		CurrentURL:        "https://accounts.google.com/ServiceLogin/signinchooser",
@@ -98,8 +100,8 @@ func (s *Server) handleCreateWorkspace(w http.ResponseWriter, r *http.Request) {
 	s.workspaces[id] = ws
 	s.mu.Unlock()
 
-	_, err = s.db.Exec(`INSERT OR REPLACE INTO workspaces (id, name, target_app, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
-		ws.ID, ws.Name, ws.TargetApp, ws.CreatedAt.Format(time.RFC3339), ws.UpdatedAt.Format(time.RFC3339))
+	_, err = s.db.Exec(`INSERT OR REPLACE INTO workspaces (id, name, target_app, api_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		ws.ID, ws.Name, ws.TargetApp, ws.APIKey, ws.CreatedAt.Format(time.RFC3339), ws.UpdatedAt.Format(time.RFC3339))
 	if err != nil {
 		log.Printf("warning: failed inserting workspace %s into sqlite: %v", id, err)
 	}
@@ -180,6 +182,7 @@ func (s *Server) handleGetWorkspace(w http.ResponseWriter, r *http.Request) {
 	resp := map[string]any{
 		"workspaceId":    ws.ID,
 		"name":           ws.Name,
+		"apiKey":         ws.APIKey,
 		"status":         ws.Status,
 		"recordingState": ws.RecordingState,
 		"currentUrl":     ws.CurrentURL,
