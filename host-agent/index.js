@@ -56,6 +56,9 @@ app.post('/containers', async (req, res) => {
             ],
             HostConfig: {
                 NetworkMode: 'host',
+                RestartPolicy: {
+                    Name: 'unless-stopped',
+                },
             },
         });
 
