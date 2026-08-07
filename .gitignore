@@ -11,6 +11,7 @@ node_modules/
 
 # Go
 backend/backend
+workspace-agent/agent
 
 # Python
 __pycache__/
@@ -22,3 +23,4 @@ data/
 
 # Logs
 *.log
+frontend/dist/
