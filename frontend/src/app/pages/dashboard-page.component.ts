@@ -33,6 +33,10 @@ export class DashboardPageComponent {
   readonly shadowopsEnabled = computed(() => this.sessionState.shadowopsEnabled());
   readonly topActionSets = computed(() => this.actionSets().slice(0, 4));
 
+  readonly editingWorkspaceId = signal<string | null>(null);
+  readonly editingName = signal<string>('');
+  readonly savingRename = signal(false);
+
   constructor() {
     this.refresh();
   }
@@ -80,6 +84,49 @@ export class DashboardPageComponent {
   goToWorkspace(workspace: WorkspaceSummary): void {
     this.sessionState.setWorkspace(workspace);
     this.router.navigate(['/workspaces', workspace.workspaceId]);
+  }
+
+  startRename(workspace: WorkspaceSummary, event?: Event): void {
+    if (this.savingRename()) return;
+    if (event) {
+      event.stopPropagation();
+    }
+    this.editingWorkspaceId.set(workspace.workspaceId);
+    this.editingName.set(workspace.name || workspace.workspaceId);
+  }
+
+  cancelRename(): void {
+    this.editingWorkspaceId.set(null);
+    this.editingName.set('');
+  }
+
+  onRenameInput(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    this.editingName.set(input.value);
+  }
+
+  saveRename(workspace: WorkspaceSummary): void {
+    const newName = this.editingName().trim();
+    if (!newName || newName === workspace.name) {
+      this.cancelRename();
+      return;
+    }
+    this.savingRename.set(true);
+    this.api.renameWorkspace(workspace.workspaceId, newName)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (response) => {
+          this.savingRename.set(false);
+          this.editingWorkspaceId.set(null);
+          this.workspaces.update((items) =>
+            items.map((item) => (item.workspaceId === workspace.workspaceId ? {...item, name: response.name} : item))
+          );
+        },
+        error: (error: {error?: {message?: string}}) => {
+          this.savingRename.set(false);
+          this.error.set(error?.error?.message ?? 'Failed to rename workspace');
+        }
+      });
   }
 
   statusClass(status: string): string {

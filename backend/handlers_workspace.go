@@ -41,25 +41,11 @@ func (s *Server) handleCreateWorkspace(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" {
-		writeError(w, http.StatusBadRequest, "WORKSPACE_NAME_REQUIRED", "Workspace name is required. Please choose a name.")
-		return
+		req.Name = "New Workspace"
 	}
 	if req.TargetApp == "" {
 		req.TargetApp = "google_ads"
 	}
-
-	s.mu.RLock()
-	for _, ws := range s.workspaces {
-		ws.mu.RLock()
-		if strings.EqualFold(ws.Name, req.Name) && ws.Status != "killed" {
-			ws.mu.RUnlock()
-			s.mu.RUnlock()
-			writeError(w, http.StatusBadRequest, "REPETITIVE_WORKSPACE_NAME", fmt.Sprintf("Workspace name '%s' already exists. Please choose a unique name.", req.Name))
-			return
-		}
-		ws.mu.RUnlock()
-	}
-	s.mu.RUnlock()
 
 	id := "ws_" + shortID()
 	port, err := randomPort()
@@ -142,26 +128,14 @@ func (s *Server) handleRenameWorkspace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.mu.RLock()
-	for _, existing := range s.workspaces {
-		existing.mu.RLock()
-		if existing.ID != ws.ID && strings.EqualFold(existing.Name, req.Name) && existing.Status != "killed" {
-			existing.mu.RUnlock()
-			s.mu.RUnlock()
-			writeError(w, http.StatusBadRequest, "REPETITIVE_WORKSPACE_NAME", fmt.Sprintf("Workspace name '%s' already exists. Please choose a unique name.", req.Name))
-			return
-		}
-		existing.mu.RUnlock()
-	}
-	s.mu.RUnlock()
-
+	now := time.Now().UTC()
 	ws.mu.Lock()
 	ws.Name = req.Name
-	ws.UpdatedAt = time.Now().UTC()
+	ws.UpdatedAt = now
 	ws.mu.Unlock()
 
 	_, err := s.db.Exec(`UPDATE workspaces SET name = ?, updated_at = ? WHERE id = ?`,
-		req.Name, time.Now().UTC().Format(time.RFC3339), ws.ID)
+		req.Name, now.Format(time.RFC3339), ws.ID)
 	if err != nil {
 		log.Printf("warning: failed updating workspace %s name in sqlite: %v", ws.ID, err)
 	}

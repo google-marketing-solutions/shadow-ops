@@ -38,6 +38,10 @@ export class ApiService {
     return this.http.get<WorkspaceSummary>(`${this.baseUrl}/workspaces/${workspaceId}`);
   }
 
+  renameWorkspace(workspaceId: string, name: string): Observable<{ok: boolean; name: string}> {
+    return this.http.patch<{ok: boolean; name: string}>(`${this.baseUrl}/workspaces/${workspaceId}`, {name});
+  }
+
   navigateWorkspace(workspaceId: string, url: string): Observable<{ok: boolean}> {
     return this.http.post<{ok: boolean}>(`${this.baseUrl}/workspaces/${workspaceId}/navigate`, {url});
   }

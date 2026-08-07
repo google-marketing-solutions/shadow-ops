@@ -46,24 +46,47 @@
             </tr>
           </thead>
           <tbody>
-            @for (ws of workspaces(); track ws.workspaceId) {
+            @for (workspace of workspaces(); track workspace.workspaceId) {
               <tr>
                 <td>
                   <div class="workspace-name">
-                    <span class="workspace-badge">{{ ws.workspaceId.slice(-2).toUpperCase() }}</span>
-                    <div>
-                      <div>{{ ws.name || ws.workspaceId }}</div>
-                      <small>{{ ws.workspaceId }} · {{ ws.createdAt | date:'MMM d, y, h:mm a' }}</small>
+                    <span class="workspace-badge">{{ workspace.workspaceId.slice(-2).toUpperCase() }}</span>
+                    <div class="workspace-details">
+                      @if (editingWorkspaceId() === workspace.workspaceId) {
+                        <div class="rename-box">
+                          <input
+                            type="text"
+                            class="rename-input"
+                            autofocus
+                            [value]="editingName()"
+                            (input)="onRenameInput($event)"
+                            (keydown.enter)="saveRename(workspace)"
+                            (keydown.escape)="cancelRename()"
+                            [disabled]="savingRename()"
+                            placeholder="Workspace name"
+                          />
+                          <button type="button" class="icon-btn save" (click)="saveRename(workspace)" [disabled]="savingRename()" title="Save">✓</button>
+                          <button type="button" class="icon-btn cancel" (click)="cancelRename()" [disabled]="savingRename()" title="Cancel">✕</button>
+                        </div>
+                      } @else {
+                        <div class="name-display">
+                          <span class="name-text">{{ workspace.name || workspace.workspaceId }}</span>
+                          <button type="button" class="edit-btn" (click)="startRename(workspace, $event)" title="Edit workspace name">
+                            ✎
+                          </button>
+                        </div>
+                      }
+                      <small>{{ workspace.workspaceId }} · {{ workspace.createdAt | date:'MMM d, y, h:mm a' }}</small>
                     </div>
                   </div>
                 </td>
                 <td>
-                  <span class="status-chip" [ngClass]="statusClass(ws.status)">
-                    {{ ws.status }}
+                  <span class="status-chip" [ngClass]="statusClass(workspace.status)">
+                    {{ workspace.status }}
                   </span>
                 </td>
-                <td class="url-cell">{{ ws.currentUrl || '—' }}</td>
-                <td><button type="button" class="link-btn" (click)="goToWorkspace(ws)">Open →</button></td>
+                <td class="url-cell">{{ workspace.currentUrl || '—' }}</td>
+                <td><button type="button" class="link-btn" (click)="goToWorkspace(workspace)">Open →</button></td>
               </tr>
             } @empty {
               <tr>

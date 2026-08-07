@@ -183,6 +183,89 @@
   font-size: 0.85rem;
 }
 
+.workspace-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.name-display {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.name-text {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.edit-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0.1rem 0.35rem;
+  border-radius: 0.35rem;
+  font-size: 0.85rem;
+  opacity: 0.6;
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
+
+  &:hover {
+    opacity: 1;
+    background: #e8f0fe;
+    color: var(--primary-blue);
+  }
+}
+
+.rename-box {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.rename-input {
+  border: 1px solid var(--primary-blue);
+  background: #ffffff;
+  color: var(--text-primary);
+  border-radius: 0.4rem;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.85rem;
+  outline: none;
+  width: 160px;
+}
+
+.icon-btn {
+  border: 1px solid var(--border);
+  background: #ffffff;
+  border-radius: 0.4rem;
+  padding: 0.2rem 0.45rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.15s;
+
+  &.save {
+    color: #137333;
+    border-color: rgba(19, 115, 51, 0.3);
+    &:hover {
+      background: #e6f4ea;
+    }
+  }
+
+  &.cancel {
+    color: #c5221f;
+    border-color: rgba(197, 34, 31, 0.3);
+    &:hover {
+      background: #fce8e6;
+    }
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
 .workspace-name small {
   color: var(--text-muted);
 }
