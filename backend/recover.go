@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log"
 	"strconv"
 	"strings"
@@ -72,7 +71,7 @@ func (s *Server) recoverWorkspaces() {
 			CreatedAt:         time.Now().UTC(),
 			UpdatedAt:         time.Now().UTC(),
 			AgentPort:         agentPort,
-			AgentBaseURL:      fmt.Sprintf("http://127.0.0.1:%d", agentPort),
+			AgentBaseURL:      s.workspaceAgentURL(agentPort),
 			DockerContainerID: id,
 			clients:           map[*WSClient]struct{}{},
 		}

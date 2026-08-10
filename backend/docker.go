@@ -10,6 +10,13 @@ import (
 	"strings"
 )
 
+func (s *Server) workspaceImageName() string {
+	if s != nil && s.config != nil && s.config.WorkspaceImageName != "" {
+		return s.config.WorkspaceImageName
+	}
+	return "shadowops-workspace-agent:dev"
+}
+
 func (s *Server) ensureWorkspaceImage() error {
 	s.imageBuildOnce.Do(func() {
 		if _, err := exec.LookPath("docker"); err != nil {
@@ -21,7 +28,8 @@ func (s *Server) ensureWorkspaceImage() error {
 			return
 		}
 		buildDir := filepath.Join(s.repoRoot, "workspace-agent")
-		_, stderr, err := s.runCmd(buildDir, "docker", "build", "-t", "shadowops-workspace-agent:dev", "-f", "Dockerfile", ".")
+		imageName := s.workspaceImageName()
+		_, stderr, err := s.runCmd(buildDir, "docker", "build", "-t", imageName, "-f", "Dockerfile", ".")
 		if err != nil {
 			s.imageBuildErr = fmt.Errorf("docker build failed: %v (%s)", err, strings.TrimSpace(stderr))
 			return
@@ -32,14 +40,14 @@ func (s *Server) ensureWorkspaceImage() error {
 
 func (s *Server) runWorkspaceContainer(workspaceID string, hostPort int) (string, error) {
 	name := "shadowops-" + strings.ReplaceAll(workspaceID, "_", "-")
-	
+
 	reqBody := map[string]any{
 		"token":          "dummy",
 		"port":           hostPort,
 		"containerName":  name,
-		"containerImage": "shadowops-workspace-agent:dev",
+		"containerImage": s.workspaceImageName(),
 	}
-	
+
 	respBody, statusCode, err := s.callHostAgent(context.Background(), "POST", "/containers", reqBody)
 	if err != nil {
 		return "", fmt.Errorf("host agent call failed: %w", err)
@@ -47,14 +55,14 @@ func (s *Server) runWorkspaceContainer(workspaceID string, hostPort int) (string
 	if statusCode >= 300 {
 		return "", fmt.Errorf("host agent returned status %d: %s", statusCode, string(respBody))
 	}
-	
+
 	var resp struct {
 		ID string `json:"id"`
 	}
 	if err := json.Unmarshal(respBody, &resp); err != nil {
 		return "", fmt.Errorf("failed to parse host agent response: %w", err)
 	}
-	
+
 	return resp.ID, nil
 }
 
@@ -65,7 +73,7 @@ func (s *Server) removeWorkspaceContainer(ws *Workspace) error {
 	if strings.TrimSpace(containerID) == "" {
 		return nil
 	}
-	
+
 	respBody, statusCode, err := s.callHostAgent(context.Background(), "DELETE", "/containers/"+containerID, nil)
 	if err != nil {
 		return fmt.Errorf("host agent call failed: %w", err)
@@ -73,7 +81,7 @@ func (s *Server) removeWorkspaceContainer(ws *Workspace) error {
 	if statusCode >= 300 {
 		return fmt.Errorf("host agent returned status %d: %s", statusCode, string(respBody))
 	}
-	
+
 	return nil
 }
 

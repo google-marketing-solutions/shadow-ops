@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -9,7 +10,12 @@ import (
 )
 
 func (s *Server) handleListPods(w http.ResponseWriter, r *http.Request) {
-	pods, err := ListWorkspacePods(r.Context())
+	if clientset == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"items": []any{}})
+		return
+	}
+
+	pods, err := s.ListWorkspacePods(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "LIST_PODS_FAILED", err.Error())
 		return
@@ -37,20 +43,28 @@ func (s *Server) handleListPods(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCreatePod(w http.ResponseWriter, r *http.Request) {
-	// Enforce pool limit of 10 pods
-	pods, err := ListWorkspacePods(r.Context())
+	if clientset == nil {
+		writeError(w, http.StatusServiceUnavailable, "K8S_DISABLED", "Kubernetes client not initialized")
+		return
+	}
+
+	limit := 10
+	if s.config != nil && s.config.PodPoolLimit > 0 {
+		limit = s.config.PodPoolLimit
+	}
+	pods, err := s.ListWorkspacePods(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "LIST_PODS_FAILED", err.Error())
 		return
 	}
 
-	if len(pods) >= 10 {
-		writeError(w, http.StatusConflict, "POOL_FULL", "Pod pool is full (limit 10). Please delete a pod first.")
+	if len(pods) >= limit {
+		writeError(w, http.StatusConflict, "POOL_FULL", fmt.Sprintf("Pod pool is full (limit %d). Please delete a pod first.", limit))
 		return
 	}
 
-	image := "us-central1-docker.pkg.dev/shrxx-experiment-sanbox-826381/hello-world-repo/workspace:v1"
-	podName, err := CreateWorkspacePod(r.Context(), "", image) // Empty workspaceId creates a free pod
+	image := s.getWorkspacePodImage()
+	podName, err := s.CreateWorkspacePod(r.Context(), "", image)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "CREATE_POD_FAILED", err.Error())
 		return
@@ -60,35 +74,28 @@ func (s *Server) handleCreatePod(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeletePod(w http.ResponseWriter, r *http.Request) {
+	if clientset == nil {
+		writeError(w, http.StatusServiceUnavailable, "K8S_DISABLED", "Kubernetes client not initialized")
+		return
+	}
+
 	podName := r.PathValue("podName")
 	if podName == "" {
 		writeError(w, http.StatusBadRequest, "INVALID_POD_NAME", "podName is required")
 		return
 	}
 
-	// We need to find the workspace ID associated with this pod if any, to clean up service too!
-	// Or we can just delete the pod and let the service be deleted by name if it matches!
-	// DeleteWorkspacePod now deletes both pod and service!
-	// But it expects workspaceId to construct names!
-	// If we only have podName, we might need to extract workspaceId from labels!
-	// Let's check if we can delete by pod name directly!
-	// In gke.go:
-	// podName := "workspace-" + workspaceId
-	// serviceName := "service-" + workspaceId
-	// So if we have podName, and it starts with "workspace-", we can extract workspaceId!
-	// Wait, free pods are named "workspace-free-...". They don't have services!
-	// So if it's a free pod, we only delete the pod!
-
+	ns := s.getK8sNamespace()
 	var err error
 	if strings.HasPrefix(podName, "workspace-free-") {
 		// It's a free pod, no service
-		err = clientset.CoreV1().Pods("default").Delete(r.Context(), podName, metav1.DeleteOptions{})
+		err = clientset.CoreV1().Pods(ns).Delete(r.Context(), podName, metav1.DeleteOptions{})
 	} else if strings.HasPrefix(podName, "workspace-") {
 		workspaceId := strings.TrimPrefix(podName, "workspace-")
-		err = DeleteWorkspacePod(r.Context(), workspaceId)
+		err = s.DeleteWorkspacePod(r.Context(), workspaceId)
 	} else {
 		// Unknown pod name format, just try to delete pod
-		err = clientset.CoreV1().Pods("default").Delete(r.Context(), podName, metav1.DeleteOptions{})
+		err = clientset.CoreV1().Pods(ns).Delete(r.Context(), podName, metav1.DeleteOptions{})
 	}
 
 	if err != nil {
@@ -100,6 +107,11 @@ func (s *Server) handleDeletePod(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUpdatePodLabel(w http.ResponseWriter, r *http.Request) {
+	if clientset == nil {
+		writeError(w, http.StatusServiceUnavailable, "K8S_DISABLED", "Kubernetes client not initialized")
+		return
+	}
+
 	podName := r.PathValue("podName")
 	if podName == "" {
 		writeError(w, http.StatusBadRequest, "INVALID_POD_NAME", "podName is required")
@@ -115,7 +127,8 @@ func (s *Server) handleUpdatePodLabel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Update pod label in K8s
-	pod, err := clientset.CoreV1().Pods("default").Get(r.Context(), podName, metav1.GetOptions{})
+	ns := s.getK8sNamespace()
+	pod, err := clientset.CoreV1().Pods(ns).Get(r.Context(), podName, metav1.GetOptions{})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "GET_POD_FAILED", err.Error())
 		return
@@ -126,7 +139,7 @@ func (s *Server) handleUpdatePodLabel(w http.ResponseWriter, r *http.Request) {
 	}
 	pod.Labels["account"] = req.Account
 
-	_, err = clientset.CoreV1().Pods("default").Update(r.Context(), pod, metav1.UpdateOptions{})
+	_, err = clientset.CoreV1().Pods(ns).Update(r.Context(), pod, metav1.UpdateOptions{})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "UPDATE_POD_FAILED", err.Error())
 		return

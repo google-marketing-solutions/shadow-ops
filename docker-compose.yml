@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  # Host Agent: Interacts with Docker daemon to launch workspace agents
+  host-agent:
+    build:
+      context: ./host-agent
+      dockerfile: Dockerfile
+    container_name: shadowops-host-agent
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      - PORT=8081
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - shadowops-net
+
+  # Core Backend Server (with integrated Angular UI serving)
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: shadowops-backend
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - BIND_ADDR=:8080
+      - DATA_DIR=/app/data
+      - STATIC_DIR=/app/public
+      - HOST_AGENT_URL=http://host-agent:8081
+      - WORKSPACE_AGENT_HOST=host.docker.internal
+      - WORKSPACE_IMAGE_NAME=shadowops-workspace-agent:dev
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-pro}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - SHADOWOPS_ENABLED=true
+    volumes:
+      - shadowops-data:/app/data
+    depends_on:
+      - host-agent
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - shadowops-net
+
+  # Workspace Agent Image Builder (builds image tag for the Docker daemon)
+  workspace-agent-image:
+    build:
+      context: ./workspace-agent
+      dockerfile: Dockerfile
+    image: shadowops-workspace-agent:dev
+    container_name: shadowops-workspace-agent-builder
+    restart: "no"
+    entrypoint: ["echo", "Workspace Agent image built successfully."]
+
+volumes:
+  shadowops-data:
+    driver: local
+
+networks:
+  shadowops-net:
+    driver: bridge

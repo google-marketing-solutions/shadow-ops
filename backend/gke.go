@@ -6,12 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"time"
-
-	"log"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -24,14 +23,116 @@ import (
 
 var clientset *kubernetes.Clientset
 
+func (s *Server) browserHeadless() string {
+	if s != nil && s.config != nil && s.config.BrowserHeadless != "" {
+		return s.config.BrowserHeadless
+	}
+	return "false"
+}
+
+// getK8sNamespace returns the configured Kubernetes namespace.
+func (s *Server) getK8sNamespace() string {
+	if s != nil && s.config != nil && s.config.K8sNamespace != "" {
+		return s.config.K8sNamespace
+	}
+	return "default"
+}
+
+// getWorkspacePodImage returns the Docker image to use for workspace pods.
+func (s *Server) getWorkspacePodImage() string {
+	if s != nil && s.config != nil && s.config.WorkspacePodImage != "" {
+		return s.config.WorkspacePodImage
+	}
+	return "shadowops-workspace-agent:latest"
+}
+
+// getWorkspacePodPort returns the agent port configured for workspace pods.
+func (s *Server) getWorkspacePodPort() int32 {
+	if s != nil && s.config != nil && s.config.WorkspaceAgentPort > 0 {
+		return int32(s.config.WorkspaceAgentPort)
+	}
+	return 8765
+}
+
+// getPodResourceRequirements returns ResourceRequirements built from Config.
+func (s *Server) getPodResourceRequirements() corev1.ResourceRequirements {
+	cpuStr := "200m"
+	memStr := "512Mi"
+	if s != nil && s.config != nil {
+		if s.config.PodCPURequest != "" {
+			cpuStr = s.config.PodCPURequest
+		}
+		if s.config.PodMemoryRequest != "" {
+			memStr = s.config.PodMemoryRequest
+		}
+	}
+
+	cpuReq, err := resource.ParseQuantity(cpuStr)
+	if err != nil {
+		log.Printf("warning: invalid POD_CPU_REQUEST %q, falling back to 200m: %v", cpuStr, err)
+		cpuReq = resource.MustParse("200m")
+	}
+
+	memReq, err := resource.ParseQuantity(memStr)
+	if err != nil {
+		log.Printf("warning: invalid POD_MEMORY_REQUEST %q, falling back to 512Mi: %v", memStr, err)
+		memReq = resource.MustParse("512Mi")
+	}
+
+	reqs := corev1.ResourceList{
+		corev1.ResourceCPU:    cpuReq,
+		corev1.ResourceMemory: memReq,
+	}
+
+	rr := corev1.ResourceRequirements{
+		Requests: reqs,
+	}
+
+	if s != nil && s.config != nil {
+		limits := corev1.ResourceList{}
+		if s.config.PodCPULimit != "" {
+			if lim, err := resource.ParseQuantity(s.config.PodCPULimit); err == nil {
+				limits[corev1.ResourceCPU] = lim
+			} else {
+				log.Printf("warning: invalid POD_CPU_LIMIT %q: %v", s.config.PodCPULimit, err)
+			}
+		}
+		if s.config.PodMemoryLimit != "" {
+			if lim, err := resource.ParseQuantity(s.config.PodMemoryLimit); err == nil {
+				limits[corev1.ResourceMemory] = lim
+			} else {
+				log.Printf("warning: invalid POD_MEMORY_LIMIT %q: %v", s.config.PodMemoryLimit, err)
+			}
+		}
+		if len(limits) > 0 {
+			rr.Limits = limits
+		}
+	}
+
+	return rr
+}
+
 // InitClient initializes the Kubernetes client.
-// It tries GKE_ENDPOINT env var first (for Cloud Run), then in-cluster config, then kubeconfig.
 func InitClient() error {
+	return InitClientWithConfig(nil)
+}
+
+// InitClientWithConfig initializes the Kubernetes client using settings from Config.
+func InitClientWithConfig(cfg *Config) error {
 	var config *rest.Config
 	var err error
 
-	endpoint := os.Getenv("GKE_ENDPOINT")
-	caCertBase64 := os.Getenv("GKE_CA_CERT")
+	var endpoint, caCertBase64 string
+	if cfg != nil {
+		endpoint = cfg.GKEEndpoint
+		caCertBase64 = cfg.GKECAData
+	}
+	if endpoint == "" {
+		endpoint = os.Getenv("GKE_ENDPOINT")
+	}
+	if caCertBase64 == "" {
+		caCertBase64 = os.Getenv("GKE_CA_CERT")
+	}
 
 	if endpoint != "" && caCertBase64 != "" {
 		// Running on Cloud Run, construct config manually
@@ -84,11 +185,16 @@ func InitClient() error {
 
 // CreateWorkspacePod creates a new pod in GKE for the workspace.
 // If workspaceId is empty, it creates a "free" pod with a random name.
-func CreateWorkspacePod(ctx context.Context, workspaceId string, image string) (string, error) {
+func (s *Server) CreateWorkspacePod(ctx context.Context, workspaceId string, image string) (string, error) {
 	if clientset == nil {
 		return "", fmt.Errorf("kubernetes client not initialized")
 	}
 
+	if image == "" {
+		image = s.getWorkspacePodImage()
+	}
+
+	port := s.getWorkspacePodPort()
 	podName := "workspace-" + workspaceId
 	labels := map[string]string{
 		"app": "shadowops",
@@ -107,18 +213,13 @@ func CreateWorkspacePod(ctx context.Context, workspaceId string, image string) (
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{
 				{
-					Name:  "agent",
-					Image: image,
-					Ports: []corev1.ContainerPort{{ContainerPort: 8765}},
-					Resources: corev1.ResourceRequirements{
-						Requests: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("200m"),
-							corev1.ResourceMemory: resource.MustParse("512Mi"),
-						},
-					},
+					Name:      "agent",
+					Image:     image,
+					Ports:     []corev1.ContainerPort{{ContainerPort: port}},
+					Resources: s.getPodResourceRequirements(),
 					Env: []corev1.EnvVar{
-						{Name: "AGENT_PORT", Value: "8765"},
-						{Name: "BROWSER_HEADLESS", Value: "false"},
+						{Name: "AGENT_PORT", Value: fmt.Sprintf("%d", port)},
+						{Name: "BROWSER_HEADLESS", Value: s.browserHeadless()},
 						{Name: "WORKSPACE_ID", Value: workspaceId},
 					},
 				},
@@ -127,7 +228,7 @@ func CreateWorkspacePod(ctx context.Context, workspaceId string, image string) (
 		},
 	}
 
-	result, err := clientset.CoreV1().Pods("default").Create(ctx, pod, metav1.CreateOptions{})
+	result, err := clientset.CoreV1().Pods(s.getK8sNamespace()).Create(ctx, pod, metav1.CreateOptions{})
 	if err != nil {
 		return "", fmt.Errorf("failed to create pod: %w", err)
 	}
@@ -135,7 +236,7 @@ func CreateWorkspacePod(ctx context.Context, workspaceId string, image string) (
 }
 
 // ListWorkspacePods lists all pods labeled app=shadowops.
-func ListWorkspacePods(ctx context.Context) ([]corev1.Pod, error) {
+func (s *Server) ListWorkspacePods(ctx context.Context) ([]corev1.Pod, error) {
 	if clientset == nil {
 		return nil, fmt.Errorf("kubernetes client not initialized")
 	}
@@ -143,7 +244,7 @@ func ListWorkspacePods(ctx context.Context) ([]corev1.Pod, error) {
 	listOptions := metav1.ListOptions{
 		LabelSelector: "app=shadowops",
 	}
-	podList, err := clientset.CoreV1().Pods("default").List(ctx, listOptions)
+	podList, err := clientset.CoreV1().Pods(s.getK8sNamespace()).List(ctx, listOptions)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list pods: %w", err)
 	}
@@ -151,12 +252,13 @@ func ListWorkspacePods(ctx context.Context) ([]corev1.Pod, error) {
 }
 
 // AssociatePodWithWorkspace adds the workspace-id label to a pod.
-func AssociatePodWithWorkspace(ctx context.Context, podName string, workspaceId string) error {
+func (s *Server) AssociatePodWithWorkspace(ctx context.Context, podName string, workspaceId string) error {
 	if clientset == nil {
 		return fmt.Errorf("kubernetes client not initialized")
 	}
 
-	pod, err := clientset.CoreV1().Pods("default").Get(ctx, podName, metav1.GetOptions{})
+	ns := s.getK8sNamespace()
+	pod, err := clientset.CoreV1().Pods(ns).Get(ctx, podName, metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to get pod: %w", err)
 	}
@@ -166,7 +268,7 @@ func AssociatePodWithWorkspace(ctx context.Context, podName string, workspaceId 
 	}
 	pod.Labels["workspace-id"] = workspaceId
 
-	_, err = clientset.CoreV1().Pods("default").Update(ctx, pod, metav1.UpdateOptions{})
+	_, err = clientset.CoreV1().Pods(ns).Update(ctx, pod, metav1.UpdateOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to update pod labels: %w", err)
 	}
@@ -174,12 +276,13 @@ func AssociatePodWithWorkspace(ctx context.Context, podName string, workspaceId 
 }
 
 // UnassociatePodFromWorkspace removes the workspace-id label from a pod.
-func UnassociatePodFromWorkspace(ctx context.Context, podName string) error {
+func (s *Server) UnassociatePodFromWorkspace(ctx context.Context, podName string) error {
 	if clientset == nil {
 		return fmt.Errorf("kubernetes client not initialized")
 	}
 
-	pod, err := clientset.CoreV1().Pods("default").Get(ctx, podName, metav1.GetOptions{})
+	ns := s.getK8sNamespace()
+	pod, err := clientset.CoreV1().Pods(ns).Get(ctx, podName, metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to get pod: %w", err)
 	}
@@ -188,7 +291,7 @@ func UnassociatePodFromWorkspace(ctx context.Context, podName string) error {
 		delete(pod.Labels, "workspace-id")
 	}
 
-	_, err = clientset.CoreV1().Pods("default").Update(ctx, pod, metav1.UpdateOptions{})
+	_, err = clientset.CoreV1().Pods(ns).Update(ctx, pod, metav1.UpdateOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to remove pod labels: %w", err)
 	}
@@ -196,11 +299,12 @@ func UnassociatePodFromWorkspace(ctx context.Context, podName string) error {
 }
 
 // CreateWorkspaceService creates a ClusterIP service for the workspace pod.
-func CreateWorkspaceService(ctx context.Context, workspaceId string) (string, error) {
+func (s *Server) CreateWorkspaceService(ctx context.Context, workspaceId string) (string, error) {
 	if clientset == nil {
 		return "", fmt.Errorf("kubernetes client not initialized")
 	}
 
+	port := s.getWorkspacePodPort()
 	serviceName := "service-" + workspaceId
 	service := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
@@ -217,15 +321,15 @@ func CreateWorkspaceService(ctx context.Context, workspaceId string) (string, er
 			},
 			Ports: []corev1.ServicePort{
 				{
-					Port:       8765,
-					TargetPort: intstr.FromInt(8765),
+					Port:       port,
+					TargetPort: intstr.FromInt(int(port)),
 					Protocol:   corev1.ProtocolTCP,
 				},
 			},
 		},
 	}
 
-	result, err := clientset.CoreV1().Services("default").Create(ctx, service, metav1.CreateOptions{})
+	result, err := clientset.CoreV1().Services(s.getK8sNamespace()).Create(ctx, service, metav1.CreateOptions{})
 	if err != nil {
 		return "", fmt.Errorf("failed to create service: %w", err)
 	}
@@ -234,7 +338,7 @@ func CreateWorkspaceService(ctx context.Context, workspaceId string) (string, er
 }
 
 // GetNodeExternalIP returns the external IP of one of the nodes.
-func GetNodeExternalIP(ctx context.Context) (string, error) {
+func (s *Server) GetNodeExternalIP(ctx context.Context) (string, error) {
 	if clientset == nil {
 		return "", fmt.Errorf("kubernetes client not initialized")
 	}
@@ -256,14 +360,15 @@ func GetNodeExternalIP(ctx context.Context) (string, error) {
 }
 
 // DeleteWorkspacePod deletes the pod associated with the workspace.
-func DeleteWorkspacePod(ctx context.Context, workspaceId string) error {
+func (s *Server) DeleteWorkspacePod(ctx context.Context, workspaceId string) error {
 	if clientset == nil {
 		return fmt.Errorf("kubernetes client not initialized")
 	}
 
+	ns := s.getK8sNamespace()
 	// Delete the service first
 	serviceName := "service-" + workspaceId
-	err := clientset.CoreV1().Services("default").Delete(ctx, serviceName, metav1.DeleteOptions{})
+	err := clientset.CoreV1().Services(ns).Delete(ctx, serviceName, metav1.DeleteOptions{})
 	if err != nil {
 		log.Printf("Failed to delete service %s: %v", serviceName, err)
 	}
@@ -272,13 +377,13 @@ func DeleteWorkspacePod(ctx context.Context, workspaceId string) error {
 	listOptions := metav1.ListOptions{
 		LabelSelector: fmt.Sprintf("workspace-id=%s", workspaceId),
 	}
-	pods, err := clientset.CoreV1().Pods("default").List(ctx, listOptions)
+	pods, err := clientset.CoreV1().Pods(ns).List(ctx, listOptions)
 	if err != nil {
 		return fmt.Errorf("failed to list pods for deletion: %w", err)
 	}
 
 	for _, pod := range pods.Items {
-		err := clientset.CoreV1().Pods("default").Delete(ctx, pod.Name, metav1.DeleteOptions{})
+		err := clientset.CoreV1().Pods(ns).Delete(ctx, pod.Name, metav1.DeleteOptions{})
 		if err != nil {
 			log.Printf("Failed to delete pod %s: %v", pod.Name, err)
 		} else {
@@ -290,21 +395,22 @@ func DeleteWorkspacePod(ctx context.Context, workspaceId string) error {
 }
 
 // CleanupAllWorkspacePods deletes all pods with label app=shadowops.
-func CleanupAllWorkspacePods(ctx context.Context) error {
+func (s *Server) CleanupAllWorkspacePods(ctx context.Context) error {
 	if clientset == nil {
 		return fmt.Errorf("kubernetes client not initialized")
 	}
 
+	ns := s.getK8sNamespace()
 	listOptions := metav1.ListOptions{
 		LabelSelector: "app=shadowops",
 	}
-	pods, err := clientset.CoreV1().Pods("default").List(ctx, listOptions)
+	pods, err := clientset.CoreV1().Pods(ns).List(ctx, listOptions)
 	if err != nil {
 		return fmt.Errorf("failed to list pods: %w", err)
 	}
 
 	for _, pod := range pods.Items {
-		err := clientset.CoreV1().Pods("default").Delete(ctx, pod.Name, metav1.DeleteOptions{})
+		err := clientset.CoreV1().Pods(ns).Delete(ctx, pod.Name, metav1.DeleteOptions{})
 		if err != nil {
 			log.Printf("Failed to delete pod %s: %v", pod.Name, err)
 		} else {
@@ -315,14 +421,15 @@ func CleanupAllWorkspacePods(ctx context.Context) error {
 }
 
 // WaitForPodIP waits for the pod to be assigned an IP address.
-func WaitForPodIP(ctx context.Context, podName string, timeout time.Duration) (string, error) {
+func (s *Server) WaitForPodIP(ctx context.Context, podName string, timeout time.Duration) (string, error) {
 	if clientset == nil {
 		return "", fmt.Errorf("kubernetes client not initialized")
 	}
 
+	ns := s.getK8sNamespace()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		pod, err := clientset.CoreV1().Pods("default").Get(ctx, podName, metav1.GetOptions{})
+		pod, err := clientset.CoreV1().Pods(ns).Get(ctx, podName, metav1.GetOptions{})
 		if err != nil {
 			return "", fmt.Errorf("failed to get pod: %w", err)
 		}

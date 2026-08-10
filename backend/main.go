@@ -17,15 +17,20 @@ func main() {
 		repoRoot = filepath.Dir(repoRoot)
 	}
 
-	dataDir := filepath.Join(repoRoot, "data")
-	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+	cfg := LoadConfig(repoRoot)
+
+	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
 		log.Fatal(err)
 	}
 
-	db := InitDB(dataDir)
+	db := InitDB(cfg.DataDir)
 	defer db.Close()
 
-	s := NewServer(repoRoot, dataDir, db)
+	if err := InitClientWithConfig(cfg); err != nil {
+		log.Printf("info: Kubernetes client not initialized (standalone mode): %v", err)
+	}
+
+	s := NewServerWithConfig(cfg, db)
 	if err := s.loadActionSets(); err != nil {
 		log.Printf("warning: failed loading action sets: %v", err)
 	}
@@ -33,9 +38,9 @@ func main() {
 	s.cronScheduler.Start()
 	s.routes()
 
-	addr := ":8080"
-	log.Printf("ShadowOps Phase 1 backend listening on %s", addr)
-	if err := http.ListenAndServe(addr, s.withCORS(s.withLogging(s.mux))); err != nil {
+	log.Printf("ShadowOps Phase 1 backend listening on %s (data: %s, host-agent: %s, static: %s)",
+		cfg.BindAddr, cfg.DataDir, cfg.HostAgentURL, cfg.StaticDir)
+	if err := http.ListenAndServe(cfg.BindAddr, s.withCORS(s.withLogging(s.mux))); err != nil {
 		log.Fatal(err)
 	}
 }

@@ -7,12 +7,24 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 )
 
-const HostAgentIP = "127.0.0.1:8081"
+// hostAgentURL constructs the full target URL for a host-agent request, respecting Config and env vars.
+func (s *Server) hostAgentURL(path string) string {
+	baseURL := "http://127.0.0.1:8081"
+	if s != nil && s.config != nil && s.config.HostAgentURL != "" {
+		baseURL = s.config.HostAgentURL
+	}
+
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	return baseURL + path
+}
 
 func (s *Server) callHostAgent(ctx context.Context, method, path string, body any) ([]byte, int, error) {
-	url := fmt.Sprintf("http://%s%s", HostAgentIP, path)
+	url := s.hostAgentURL(path)
 
 	var reqBody io.Reader
 	if body != nil {
@@ -32,10 +44,13 @@ func (s *Server) callHostAgent(ctx context.Context, method, path string, body an
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	client := &http.Client{}
+	client := s.httpClient
+	if client == nil {
+		client = &http.Client{}
+	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to call host agent: %w", err)
+		return nil, 0, fmt.Errorf("failed to call host agent at %s: %w", url, err)
 	}
 	defer resp.Body.Close()
 
@@ -46,4 +61,3 @@ func (s *Server) callHostAgent(ctx context.Context, method, path string, body an
 
 	return respBody, resp.StatusCode, nil
 }
-

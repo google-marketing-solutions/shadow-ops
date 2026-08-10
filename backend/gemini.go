@@ -15,9 +15,14 @@ import (
 	"golang.org/x/oauth2/google"
 )
 
-const (
-	geminiAPIEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent"
-)
+const defaultGeminiEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent"
+
+func (s *Server) geminiEndpoint() string {
+	if s != nil && s.config != nil && s.config.GeminiAPIEndpoint != "" {
+		return s.config.GeminiAPIEndpoint
+	}
+	return defaultGeminiEndpoint
+}
 
 type GeminiRequest struct {
 	Contents         []Content `json:"contents"`
@@ -121,9 +126,13 @@ Based on these instructions and the Action Set, generate a complete Python Playw
 		return "", fmt.Errorf("failed to marshal request body: %w", err)
 	}
 
-	endpoint := geminiAPIEndpoint
+	endpoint := s.geminiEndpoint()
 	if apiKey != "" {
-		endpoint = fmt.Sprintf("%s?key=%s", geminiAPIEndpoint, apiKey)
+		if strings.Contains(endpoint, "?") {
+			endpoint = fmt.Sprintf("%s&key=%s", endpoint, apiKey)
+		} else {
+			endpoint = fmt.Sprintf("%s?key=%s", endpoint, apiKey)
+		}
 	}
 
 	req, err := http.NewRequest("POST", endpoint, bytes.NewBuffer(jsonBody))

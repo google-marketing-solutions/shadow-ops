@@ -34,7 +34,7 @@ func (s *Server) CreateInstance(ctx context.Context, project, zone, instanceName
 		Project: project,
 		Zone:    zone,
 		InstanceResource: &computepb.Instance{
-			Name: proto.String(instanceName),
+			Name:        proto.String(instanceName),
 			MachineType: proto.String(fmt.Sprintf("zones/%s/machineTypes/n1-standard-1", zone)),
 			Disks: []*computepb.AttachedDisk{
 				{

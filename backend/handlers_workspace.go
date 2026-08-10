@@ -54,15 +54,38 @@ func (s *Server) handleCreateWorkspace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.ensureWorkspaceImage(); err != nil {
-		writeError(w, http.StatusInternalServerError, "DOCKER_IMAGE_BUILD_FAILED", err.Error())
-		return
-	}
+	var containerID string
+	var agentBaseURL string
 
-	containerID, err := s.runWorkspaceContainer(id, port)
-	if err != nil {
-		writeError(w, http.StatusBadGateway, "WORKSPACE_CONTAINER_START_FAILED", err.Error())
-		return
+	if clientset != nil {
+		podName, err := s.CreateWorkspacePod(r.Context(), id, s.getWorkspacePodImage())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "GKE_POD_CREATION_FAILED", err.Error())
+			return
+		}
+		containerID = podName
+
+		podIP, err := s.WaitForPodIP(r.Context(), podName, 60*time.Second)
+		if err != nil {
+			_ = s.DeleteWorkspacePod(r.Context(), id)
+			writeError(w, http.StatusBadGateway, "GKE_POD_IP_TIMEOUT", err.Error())
+			return
+		}
+		port = int(s.getWorkspacePodPort())
+		agentBaseURL = fmt.Sprintf("http://%s:%d", podIP, port)
+	} else {
+		if err := s.ensureWorkspaceImage(); err != nil {
+			writeError(w, http.StatusInternalServerError, "DOCKER_IMAGE_BUILD_FAILED", err.Error())
+			return
+		}
+
+		cID, err := s.runWorkspaceContainer(id, port)
+		if err != nil {
+			writeError(w, http.StatusBadGateway, "WORKSPACE_CONTAINER_START_FAILED", err.Error())
+			return
+		}
+		containerID = cID
+		agentBaseURL = s.workspaceAgentURL(port)
 	}
 
 	ws := &Workspace{
@@ -72,11 +95,11 @@ func (s *Server) handleCreateWorkspace(w http.ResponseWriter, r *http.Request) {
 		APIKey:            "sk_" + shortID() + shortID(),
 		Status:            "launching",
 		RecordingState:    "off",
-		CurrentURL:        "https://accounts.google.com/ServiceLogin/signinchooser",
+		CurrentURL:        s.defaultTargetURL(),
 		CreatedAt:         time.Now().UTC(),
 		UpdatedAt:         time.Now().UTC(),
 		AgentPort:         port,
-		AgentBaseURL:      fmt.Sprintf("http://127.0.0.1:%d", port),
+		AgentBaseURL:      agentBaseURL,
 		DockerContainerID: containerID,
 		clients:           map[*WSClient]struct{}{},
 	}
@@ -93,7 +116,11 @@ func (s *Server) handleCreateWorkspace(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.waitForAgentHealth(ws, 30*time.Second); err != nil {
-		_ = s.removeWorkspaceContainer(ws)
+		if clientset != nil {
+			_ = s.DeleteWorkspacePod(r.Context(), ws.ID)
+		} else {
+			_ = s.removeWorkspaceContainer(ws)
+		}
 		ws.mu.Lock()
 		ws.Status = "error"
 		ws.UpdatedAt = time.Now().UTC()
@@ -196,7 +223,11 @@ func (s *Server) handleKillWorkspace(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_ = s.agentPostJSON(ws, "/kill", map[string]any{}, nil)
-	_ = s.removeWorkspaceContainer(ws)
+	if clientset != nil {
+		_ = s.DeleteWorkspacePod(r.Context(), ws.ID)
+	} else {
+		_ = s.removeWorkspaceContainer(ws)
+	}
 
 	ws.mu.Lock()
 	ws.Status = "killed"
@@ -385,3 +416,17 @@ func (s *Server) handleListDefaultScripts(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
+func (s *Server) workspaceAgentURL(port int) string {
+	host := "127.0.0.1"
+	if s != nil && s.config != nil && s.config.WorkspaceAgentHost != "" {
+		host = s.config.WorkspaceAgentHost
+	}
+	return fmt.Sprintf("http://%s:%d", host, port)
+}
+
+func (s *Server) defaultTargetURL() string {
+	if s != nil && s.config != nil && s.config.DefaultTargetURL != "" {
+		return s.config.DefaultTargetURL
+	}
+	return "https://accounts.google.com/ServiceLogin/signinchooser"
+}
