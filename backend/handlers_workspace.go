@@ -115,7 +115,7 @@ func (s *Server) handleCreateWorkspace(w http.ResponseWriter, r *http.Request) {
 		log.Printf("warning: failed inserting workspace %s into sqlite: %v", id, err)
 	}
 
-	if err := s.waitForAgentHealth(ws, 30*time.Second); err != nil {
+	if err := s.waitForAgentHealth(ws, 60*time.Second); err != nil {
 		if clientset != nil {
 			_ = s.DeleteWorkspacePod(r.Context(), ws.ID)
 		} else {

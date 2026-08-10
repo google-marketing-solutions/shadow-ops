@@ -1,6 +1,6 @@
 # ShadowOps Platform Deployment & Configuration Guide (`deployment.md`)
 
-This guide provides end-to-end instructions for deploying, configuring, and running **ShadowOps Phase 1** across **Standalone Servers** (Linux VMs, DigitalOcean Droplets, Bare Metal, Local PCs) and **Google Cloud Platform** (GKE, Cloud Run, Compute Engine).
+This guide provides end-to-end instructions for deploying, configuring, and running **ShadowOps Phase 1** across **Standalone Servers** (Linux VMs, DigitalOcean Droplets, Bare Metal, Local PCs) and **Google Cloud Platform** (Compute Engine VM, Identity-Aware Proxy (IAP) Security).
 
 ---
 
@@ -64,31 +64,40 @@ ShadowOps consists of 4 integrated services:
        [ Docker Engine / Daemon ]
 ```
 
-#### 2. Google Cloud / GKE Enterprise Deployment (HTTPS & Cloud Security)
+#### 2. Google Cloud Platform (GCP) Compute Engine + IAP Architecture
 
 ```
                        ┌────────────────────────┐
                        │   Client Browser (UI)  │
                        └───────────┬────────────┘
                                    │
-                      HTTPS / WSS  │  :443 (Managed TLS Certificate)
+                      HTTPS / WSS  │  :443 (GCP HTTPS Load Balancer + Managed SSL)
+                      or IAP Tunnel│  or gcloud start-iap-tunnel :8080
                                    ▼
                      ┌───────────────────────────┐
-                     │  Cloud Run / Ingress      │
-                     │  (ShadowOps Backend + UI) │
-                     └─────┬───────────────┬─────┘
-                           │               │
-        GKE_ENDPOINT       │               │ Direct Pod / ClusterIP
-        HTTPS (Port :443)  │               │ HTTP / WS (Port :8765)
-        mTLS + OAuth Token │               │ (Private VPC / Service Mesh)
-                           ▼               ▼
-      ┌──────────────────────────┐   ┌───────────────────────────┐
-      │   GKE Control Plane API  │   │  Workspace Agent Pods     │
-      │  (Replaces Host Agent)   │   │  (Playwright + Chrome)    │
-      └─────────────┬────────────┘   │   Namespace: K8S_NAMESPACE│
-                    │ Provisions     └───────────────────────────┘
-                    ▼
-       [ GKE Worker Nodes Pool ]
+                     │ Google Cloud IAP / LB     │
+                     │ (Google SSO & IAM Auth)   │
+                     └─────────────┬─────────────┘
+                                   │
+                                   ▼
+                     ┌───────────────────────────┐
+                     │ Compute Engine (GCE) VM   │
+                     │  (shadowops-server)       │
+                     │                           │
+                     │  ┌─────────────────────┐  │
+                     │  │ Backend & Web UI    │  │
+                     │  │ (Docker :8080)      │  │
+                     │  └──────────┬──────────┘  │
+                     │             │             │
+                     │  ┌──────────▼──────────┐  │
+                     │  │ Host Agent (:8081)  │  │
+                     │  └──────────┬──────────┘  │
+                     │             │ Launches    │
+                     │  ┌──────────▼──────────┐  │
+                     │  │ Workspace Container │  │
+                     │  │ (Playwright :8765+) │  │
+                     │  └─────────────────────┘  │
+                     └───────────────────────────┘
 ```
 
 ### HTTP vs. HTTPS Protocol Resolution Rules
@@ -98,22 +107,21 @@ ShadowOps consists of 4 integrated services:
 | **Browser $\rightarrow$ Backend** | `http://` or `https://`<br>`ws://` or `wss://` | `BIND_ADDR` / `PORT` | Auto-detected by browser. If accessed via `https://`, Angular client automatically opens WebSocket over secure `wss://`. |
 | **Backend $\rightarrow$ Host Agent** | `http://` or `https://` | `HOST_AGENT_URL`<br>`HOST_AGENT_ADDR`<br>`HOST_AGENT_IP` | • `HOST_AGENT_URL` preserves full scheme (e.g. `https://host-agent.internal:8443`).<br>• `HOST_AGENT_ADDR` without scheme defaults to `http://<addr>`.<br>• Go HTTP client verifies TLS certificates with system CAs. |
 | **Backend $\rightarrow$ Workspace Agent** | `http://` and `ws://` | *(Automatic)* | Automatically routed to the local allocated container port (`http://127.0.0.1:<port>`). No manual configuration required. |
-| **Backend $\rightarrow$ GKE Cluster** | `https://` (TLS) | `GKE_ENDPOINT`<br>`GKE_CA_CERT` | Communicates over HTTPS to GKE master using base64 CA certificate and GCP metadata OAuth bearer tokens. |
 | **Backend $\rightarrow$ Gemini AI** | `https://` (TLS) | `GEMINI_API_ENDPOINT` | Encrypted HTTPS REST calls to Google AI (`generativelanguage.googleapis.com`) with API key or ADC OAuth tokens. |
 
-| Component | Standalone / VM Mode | GKE / Cloud Mode |
+| Component | Standalone / VM Mode | GCP Compute Engine (GCE) Mode |
 | :--- | :--- | :--- |
-| **Backend** | Go binary / Docker container (:8080) | Google Cloud Run or GKE Deployment (:8080) |
+| **Backend** | Go binary / Docker container (:8080) | Docker container (:8080) on GCE VM |
 | **Frontend UI** | Served directly by Backend or ng serve (:4200) | Integrated into Backend container bundle |
-| **Host Agent** | Node.js process (:8081) managing Docker socket | **Replaced by Kubernetes API** (not deployed) |
-| **Workspace Agent** | Local Docker containers managed by Host Agent | Ephemeral Kubernetes Pods managed by GKE |
-| **Orchestrator** | Node.js Dockerode ([host-agent/](file:///usr/local/google/home/shrxx/Documents/shadowops-rewrite/shadow-ops/host-agent)) | GKE Control Plane via [backend/gke.go](file:///usr/local/google/home/shrxx/Documents/shadowops-rewrite/shadow-ops/backend/gke.go) |
+| **Host Agent** | Node.js process (:8081) managing Docker socket | Node.js process (:8081) managing Docker socket |
+| **Workspace Agent** | Local Docker containers managed by Host Agent | Docker containers managed by Host Agent |
+| **Security & Auth** | Local network / basic firewall | Google Cloud Identity-Aware Proxy (IAP) & IAM |
 
 ---
 
 ## 2. Environment Variables Reference
 
-All services support environment variable configuration. Copy [`.env.example`](file:///usr/local/google/home/shrxx/Documents/shadowops-rewrite/shadow-ops/.env.example) to `.env` to customize settings.
+All services support environment variable configuration. Copy [`.env.example`](./.env.example) to `.env` to customize settings.
 
 ### Backend Configuration (`backend/`)
 
@@ -159,7 +167,7 @@ All services support environment variable configuration. Copy [`.env.example`](f
 | `PORT` | `8081` | HTTP port for Host Agent API. |
 
 > [!TIP]
-> **Workspace Agent is Zero-Configuration**: The Workspace Agent container ([workspace-agent/Dockerfile](file:///usr/local/google/home/shrxx/Documents/shadowops-rewrite/shadow-ops/workspace-agent/Dockerfile)) is completely self-contained with bundled Chrome, Playwright, Xvfb, and its internal server. It requires **no manual environment variables or custom configuration**; the platform backend and orchestrator manage all workspace sessions automatically.
+> **Workspace Agent is Zero-Configuration**: The Workspace Agent container ([workspace-agent/Dockerfile](./workspace-agent/Dockerfile)) is completely self-contained with bundled Chrome, Playwright, Xvfb, and its internal server. It requires **no manual environment variables or custom configuration**; the platform backend and orchestrator manage all workspace sessions automatically.
 
 ---
 
@@ -269,117 +277,45 @@ To run directly on the host machine (e.g. Ubuntu 22.04 / 24.04 VM):
 
 ---
 
-## 4. Google Cloud Platform (GCP) Deployment
+## 4. Google Cloud Platform (GCP) Compute Engine (GCE) Deployment
 
-### Option A: GKE (Google Kubernetes Engine) + Cloud Run
+Deploy the complete Docker Compose stack onto a single Google Compute Engine (GCE) VM with attached persistent SSD.
 
-In this enterprise topology, the **Backend + Web UI** runs on Google Cloud Run, and dynamic browser automation agents (**Workspace Agents**) run as isolated pods in a GKE cluster.
-
-> [!NOTE]
-> In GKE deployment mode, the **Host Agent** is **not deployed**. The Go backend talks directly to the GKE Control Plane via [backend/gke.go](file:///usr/local/google/home/shrxx/Documents/shadowops-rewrite/shadow-ops/backend/gke.go) to provision and manage Workspace Agent pods.
-
-#### 1. Setup GCP Project & Artifact Registry
+### 1. Create Compute Engine VM
 ```bash
 export PROJECT_ID="my-gcp-project"
-export REGION="us-central1"
-export CLUSTER_NAME="shadowops-cluster"
+export ZONE="us-central1-a"
 
 gcloud config set project $PROJECT_ID
 
-# Enable required APIs
-gcloud services enable \
-  container.googleapis.com \
-  run.googleapis.com \
-  artifactregistry.googleapis.com
-
-# Create Artifact Registry repository
-gcloud artifacts repositories create shadowops-repo \
-  --repository-format=docker \
-  --location=$REGION \
-  --description="ShadowOps Container Repository"
-```
-
-#### 2. Build and Push Workspace Agent Image
-```bash
-export WORKSPACE_IMAGE="$REGION-docker.pkg.dev/$PROJECT_ID/shadowops-repo/workspace-agent:latest"
-
-docker build -t $WORKSPACE_IMAGE ./workspace-agent
-gcloud auth configure-docker $REGION-docker.pkg.dev
-docker push $WORKSPACE_IMAGE
-```
-
-#### 3. Create GKE Cluster
-```bash
-gcloud container clusters create-auto $CLUSTER_NAME \
-  --region=$REGION \
-  --enable-master-authorized-networks=false
-```
-
-#### 4. Configure Workload Identity & Cloud Run Service Account
-```bash
-# Create Service Account for Backend
-gcloud iam service-accounts create shadowops-backend-sa \
-  --display-name="ShadowOps Backend Service Account"
-
-# Grant Kubernetes Developer role on GKE
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-  --member="serviceAccount:shadowops-backend-sa@$PROJECT_ID.iam.gserviceaccount.com" \
-  --role="roles/container.developer"
-
-# Grant Gemini / Vertex AI user role
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-  --member="serviceAccount:shadowops-backend-sa@$PROJECT_ID.iam.gserviceaccount.com" \
-  --role="roles/aiplatform.user"
-```
-
-#### 5. Deploy Backend to Cloud Run
-```bash
-# Get GKE cluster endpoint and CA Cert
-export GKE_ENDPOINT="https://$(gcloud container clusters describe $CLUSTER_NAME --region=$REGION --format='value(endpoint)')"
-export GKE_CA_CERT="$(gcloud container clusters describe $CLUSTER_NAME --region=$REGION --format='value(masterAuth.clusterCaCertificate)')"
-
-# Build and push Backend Image
-export BACKEND_IMAGE="$REGION-docker.pkg.dev/$PROJECT_ID/shadowops-repo/backend:latest"
-docker build -t $BACKEND_IMAGE -f Dockerfile .
-docker push $BACKEND_IMAGE
-
-# Deploy Cloud Run Service
-gcloud run deploy shadowops-backend \
-  --image=$BACKEND_IMAGE \
-  --region=$REGION \
-  --service-account="shadowops-backend-sa@$PROJECT_ID.iam.gserviceaccount.com" \
-  --set-env-vars="GKE_ENDPOINT=$GKE_ENDPOINT,GKE_CA_CERT=$GKE_CA_CERT,WORKSPACE_POD_IMAGE=$WORKSPACE_IMAGE,K8S_NAMESPACE=default,SHADOWOPS_ENABLED=true" \
-  --allow-unauthenticated \
-  --port=8080 \
-  --cpu=2 \
-  --memory=2Gi
-```
-
----
-
-### Option B: Google Compute Engine (GCE) VM
-
-Deploy the complete Docker Compose stack onto a single Compute Engine VM with attached persistent SSD.
-
-```bash
-# Create GCE instance with Docker pre-installed
+# Create GCE instance with Ubuntu 24.04 LTS
 gcloud compute instances create shadowops-vm \
-  --zone="us-central1-a" \
+  --zone=$ZONE \
   --machine-type="e2-standard-4" \
   --image-family="ubuntu-2404-lts-amd64" \
   --image-project="ubuntu-os-cloud" \
   --boot-disk-size="50GB" \
-  --tags="http-server,https-server" \
+  --tags="http-server,https-server,shadowops" \
   --scopes="cloud-platform"
 
-# Allow firewall traffic on port 8080
+# Allow firewall traffic on port 8080 (or restrict using IAP in Section 5)
 gcloud compute firewall-rules create allow-shadowops-8080 \
   --allow=tcp:8080 \
   --target-tags="http-server"
 ```
 
+### 2. Launch Services via Docker Compose
 SSH into the instance and run:
 ```bash
+gcloud compute ssh shadowops-vm --zone=$ZONE
+
+# Install Docker & Docker Compose plugin
+sudo apt-get update
+sudo apt-get install -y docker.io docker-compose-v2
+sudo usermod -aG docker $USER
+newgrp docker
+
+# Clone repository and launch stack
 git clone <repository_url> shadow-ops
 cd shadow-ops
 docker compose up -d --build
@@ -387,7 +323,198 @@ docker compose up -d --build
 
 ---
 
-## 5. Verification & Health Checks
+## 5. Google Cloud Security & Identity-Aware Proxy (IAP)
+
+To protect your ShadowOps deployment so only authorized Google accounts (e.g. `user@yourdomain.com`) can access the dashboard, Google Cloud provides two IAP integration patterns:
+
+---
+
+### Method A: Google Cloud IAP TCP Tunneling (Recommended for Private VMs)
+
+IAP TCP Tunneling provides zero-public-exposure security. The VM's public internet firewall is disabled completely; only authenticated users who hold IAM access in the Google Cloud project can open an encrypted tunnel to the web dashboard.
+
+```
+┌──────────────────────────┐    gcloud start-iap-tunnel    ┌──────────────────────────┐     Private Port :8080     ┌──────────────────────────┐
+│  Developer Browser       ├──────────────────────────────►│  Google Cloud IAP Proxy  ├───────────────────────────►│  Compute Engine VM     │
+│  http://localhost:8080   │   (Auth: user@yourdomain.com) │  (CIDR: 35.235.240.0/20) │    (No Public IP Access) │  (shadowops-server)      │
+└──────────────────────────┘                               └──────────────────────────┘                            └──────────────────────────┘
+```
+
+#### Step-by-Step Setup:
+
+1. **Create the IAP Firewall Ingress Rule**:
+   Allow traffic only from Google's secure IAP forwarders (`35.235.240.0/20`):
+   ```bash
+   gcloud compute firewall-rules create allow-iap-proxy \
+     --project=$PROJECT_ID \
+     --direction=INGRESS \
+     --priority=1000 \
+     --network=default \
+     --action=ALLOW \
+     --rules=tcp:8080,tcp:22 \
+     --source-ranges=35.235.240.0/20 \
+     --target-tags=shadowops
+   ```
+
+2. **Disable or Delete Any Public Ingress Firewall Rules**:
+   ```bash
+   # Remove open 0.0.0.0/0 firewall rules
+   gcloud compute firewall-rules delete allow-shadowops-8080 --project=$PROJECT_ID
+   ```
+
+3. **Grant IAM Permissions**:
+   Grant the user the IAP tunnel accessor role:
+   ```bash
+   gcloud projects add-iam-policy-binding $PROJECT_ID \
+     --member="user:user@yourdomain.com" \
+     --role="roles/iap.tunnelResourceAccessor"
+   ```
+
+4. **Connect to the Dashboard**:
+   Run the tunnel command in your terminal:
+   ```bash
+   gcloud compute start-iap-tunnel shadowops-server 8080 \
+     --local-host-port=localhost:8080 \
+     --zone=us-central1-a \
+     --project=$PROJECT_ID
+   ```
+   Open **[http://localhost:8080](http://localhost:8080)** in your browser.
+
+---
+
+### Method B: Browser-Based IAP via External HTTPS Load Balancer
+
+Browser-based IAP redirects any user visiting your public domain to a **"Sign in with Google"** OAuth screen before forwarding authenticated requests to the backend.
+
+```
+┌──────────────────────────┐      1. HTTPS Request         ┌──────────────────────────┐
+│  Client Browser          ├──────────────────────────────►│  Cloud Load Balancer     │
+│  https://shadowops.domain│                               │  + Identity-Aware Proxy  │
+└──────────────────────────┘                               └────────────┬─────────────┘
+             ▲                                                          │
+             │ 2. Redirects to "Sign in with Google"                    │ 3. Forwards if user has
+             │    (Enforces identity: user@yourdomain.com)              │    roles/iap.httpsResourceAccessor
+             ▼                                                          ▼
+┌──────────────────────────┐                               ┌──────────────────────────┐
+│ Google Accounts / OAuth  │                               │  Unmanaged Instance Group│
+│ (Cloud Identity / IdP)   │                               │  (shadowops-server:8080) │
+└──────────────────────────┘                               └──────────────────────────┘
+```
+
+#### Step-by-Step Setup:
+
+1. **Enable IAP and Resource Manager APIs**:
+   ```bash
+   gcloud services enable iap.googleapis.com cloudresourcemanager.googleapis.com --project=$PROJECT_ID
+   ```
+
+2. **Create OAuth Consent Brand & Credentials**:
+   ```bash
+   # Create OAuth Brand
+   gcloud iap oauth-brands create \
+     --application_title="ShadowOps" \
+     --support_email="admin@yourdomain.com" \
+     --project=$PROJECT_ID
+
+   # Create IAP OAuth Client
+   gcloud iap oauth-clients create projects/$PROJECT_NUMBER/brands/$PROJECT_NUMBER \
+     --display_name="ShadowOps-IAP-Client" \
+     --project=$PROJECT_ID
+   ```
+
+3. **Put the VM into an Unmanaged Instance Group**:
+   ```bash
+   gcloud compute instance-groups unmanaged create shadowops-ig \
+     --project=$PROJECT_ID \
+     --zone=us-central1-a
+
+   gcloud compute instance-groups unmanaged add-instances shadowops-ig \
+     --project=$PROJECT_ID \
+     --zone=us-central1-a \
+     --instances=shadowops-server
+
+   gcloud compute instance-groups unmanaged set-named-ports shadowops-ig \
+     --project=$PROJECT_ID \
+     --zone=us-central1-a \
+     --named-ports=http:8080
+   ```
+
+4. **Create Health Check & IAP-Secured Backend Service**:
+   ```bash
+   # Create Health Check
+   gcloud compute health-checks create http shadowops-hc \
+     --project=$PROJECT_ID \
+     --port=8080 \
+     --request-path=/api/v1/health
+
+   # Create Backend Service with IAP Enabled
+   gcloud compute backend-services create shadowops-backend-service \
+     --project=$PROJECT_ID \
+     --protocol=HTTP \
+     --port-name=http \
+     --health-checks=shadowops-hc \
+     --global \
+     --iap=enabled,oauth2-client-id=$OAUTH_CLIENT_ID,oauth2-client-secret=$OAUTH_CLIENT_SECRET
+
+   # Add Instance Group to Backend Service
+   gcloud compute backend-services add-backend shadowops-backend-service \
+     --project=$PROJECT_ID \
+     --global \
+     --instance-group=shadowops-ig \
+     --instance-group-zone=us-central1-a \
+     --balancing-mode=UTILIZATION \
+     --max-utilization=0.8
+   ```
+
+5. **Grant IAP Web Access to Specified Google Accounts**:
+   ```bash
+   gcloud iap web add-iam-policy-binding \
+     --resource-type=backend-services \
+     --service=shadowops-backend-service \
+     --member="user:user@yourdomain.com" \
+     --role="roles/iap.httpsResourceAccessor" \
+     --project=$PROJECT_ID
+   ```
+
+6. **Create Load Balancer Routing & HTTPS Frontend**:
+   ```bash
+   # Reserve Global Static IP
+   gcloud compute addresses create shadowops-lb-ip --global --project=$PROJECT_ID
+
+   # Create URL Map
+   gcloud compute url-maps create shadowops-url-map \
+     --default-service=shadowops-backend-service \
+     --global \
+     --project=$PROJECT_ID
+
+   # Create Google-Managed SSL Certificate for your domain
+   gcloud compute ssl-certificates create shadowops-ssl-cert \
+     --domains="shadowops.yourdomain.com" \
+     --global \
+     --project=$PROJECT_ID
+
+   # Create Target HTTPS Proxy
+   gcloud compute target-https-proxies create shadowops-https-proxy \
+     --url-map=shadowops-url-map \
+     --ssl-certificates=shadowops-ssl-cert \
+     --global \
+     --project=$PROJECT_ID
+
+   # Create Global Forwarding Rule on Port 443
+   gcloud compute forwarding-rules create shadowops-https-rule \
+     --global \
+     --target-https-proxy=shadowops-https-proxy \
+     --ports=443 \
+     --address=shadowops-lb-ip \
+     --project=$PROJECT_ID
+   ```
+
+> [!NOTE]
+> **Organization Policy Constraint**: If your Google Cloud project enforces `constraints/compute.restrictLoadBalancerCreationForTypes` restricting external public load balancers, use **Method A (IAP TCP Tunneling)** or an in-cluster OAuth proxy (e.g. `oauth2-proxy`) on the VM.
+
+---
+
+## 6. Verification & Health Checks
 
 Once deployed, verify that all services are operational:
 
@@ -417,4 +544,4 @@ Once deployed, verify that all services are operational:
    ```
 
 4. **Verify WebSocket Live Stream**:
-   Open `http://<SERVER_IP>:8080/workspaces/<WORKSPACE_ID>` in Chrome/Firefox and observe the live canvas streaming browser frames.
+   Open `http://localhost:8080/workspaces/<WORKSPACE_ID>` (or `http://<SERVER_IP>:8080/workspaces/<WORKSPACE_ID>`) in Chrome/Firefox and observe the live canvas streaming browser frames.

@@ -49,6 +49,21 @@ func (s *Server) handleSetWorkspaceCron(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	var existing struct {
+		ScriptFilename string
+		ScriptSource   string
+		CsvFilename    string
+		CsvData        string
+	}
+	err := s.db.QueryRow("SELECT script_filename, script_source, csv_filename, csv_data FROM workspace_crons WHERE workspace_id = ?", workspaceID).
+		Scan(&existing.ScriptFilename, &existing.ScriptSource, &existing.CsvFilename, &existing.CsvData)
+	if err == nil {
+		if req.ScriptFilename == "" { req.ScriptFilename = existing.ScriptFilename }
+		if req.ScriptSource == "" { req.ScriptSource = existing.ScriptSource }
+		if req.CsvFilename == "" { req.CsvFilename = existing.CsvFilename }
+		if req.CsvData == "" { req.CsvData = existing.CsvData }
+	}
+
 	now := time.Now().UTC().Format(time.RFC3339)
 	wc := WorkspaceCron{
 		WorkspaceID:    workspaceID,
@@ -61,7 +76,7 @@ func (s *Server) handleSetWorkspaceCron(w http.ResponseWriter, r *http.Request) 
 		UpdatedAt:      now,
 	}
 
-	_, err := s.db.Exec(`
+	_, err = s.db.Exec(`
 		INSERT INTO workspace_crons (workspace_id, cron_expression, script_filename, script_source, csv_filename, csv_data, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(workspace_id) DO UPDATE SET
@@ -141,7 +156,7 @@ func (s *Server) handleListBatchExecutions(w http.ResponseWriter, r *http.Reques
 func (s *Server) handleDownloadBatchExecutionCsv(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	var csvData string
+	var csvData sql.NullString
 	err := s.db.QueryRow("SELECT result_csv_data FROM batch_executions WHERE id = ?", id).Scan(&csvData)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -154,7 +169,7 @@ func (s *Server) handleDownloadBatchExecutionCsv(w http.ResponseWriter, r *http.
 
 	w.Header().Set("Content-Type", "text/csv")
 	w.Header().Set("Content-Disposition", `attachment; filename="batch_result.csv"`)
-	w.Write([]byte(csvData))
+	w.Write([]byte(csvData.String))
 }
 
 func (s *Server) handleCancelBatchExecution(w http.ResponseWriter, r *http.Request) {

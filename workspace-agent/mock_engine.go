@@ -63,16 +63,21 @@ func (e *MockAgentEngine) Navigate(ctx context.Context, in NavigateInput) (Navig
 
 // HandleInput processes synthetic mouse, key, or resize events.
 func (e *MockAgentEngine) HandleInput(ctx context.Context, in InputPayload) error {
+	action := in.Action
+	if action == "" {
+		action = in.Event
+	}
+
 	e.stateMgr.UpdateState(func(s *AgentState) {
-		if in.Type == "viewport.resize" && in.Width > 0 && in.Height > 0 {
+		if (in.Type == "viewport.resize" || in.Type == "resize") && in.Width > 0 && in.Height > 0 {
 			s.ViewportWidth = in.Width
 			s.ViewportHeight = in.Height
-		} else if in.Type == "input.mouse" {
+		} else if in.Type == "input.mouse" || in.Type == "mouse" {
 			s.CursorX = int(in.X)
 			s.CursorY = int(in.Y)
-			if in.Event == "down" {
+			if action == "down" {
 				s.MouseDown = true
-			} else if in.Event == "up" || in.Event == "click" {
+			} else if action == "up" || action == "click" {
 				s.MouseDown = false
 			}
 		}

@@ -12,6 +12,8 @@ RUN npm run build
 FROM golang:1.24-bookworm AS backend-builder
 WORKDIR /app/backend
 
+ENV GOTOOLCHAIN=auto
+
 RUN apt-get update -qq && \
     apt-get install -y -qq --no-install-recommends gcc libc6-dev && \
     rm -rf /var/lib/apt/lists/*
@@ -40,7 +42,6 @@ ENV PORT=8080 \
     DATA_DIR=/app/data \
     STATIC_DIR=/app/public \
     HOST_AGENT_URL=http://127.0.0.1:8081 \
-    WORKSPACE_AGENT_HOST=127.0.0.1 \
     WORKSPACE_IMAGE_NAME=shadowops-workspace-agent:dev \
     SHADOWOPS_ENABLED=true
 

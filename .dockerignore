@@ -1,0 +1,36 @@
+# Node.js dependencies, caches & build artifacts
+**/node_modules/
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.angular/
+host-agent/node_modules/
+.angular/
+dist/
+
+# Version control & IDE
+.git/
+.gitignore
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Compiled Go binaries & test artifacts
+backend/backend
+workspace-agent/agent
+shadowops-backend
+*.exe
+*.test
+*.out
+
+# Python virtualenvs & caches
+__pycache__/
+*.pyc
+.venv/
+.venv*/
+
+# Data & logs
+data/
+*.log

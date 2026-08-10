@@ -257,11 +257,11 @@
             </div>
           }
 
-          <label class="script-label">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-              <span>Upload CSV File</span>
-              <button type="button" class="btn btn-sm" style="padding: 2px 8px; font-size: 12px; border-radius: 4px; border: 1px solid #ccc; background: transparent; cursor: pointer; color: inherit;" (click)="openApiModal()">API Upload</button>
-            </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <span style="font-size: 0.8125rem; font-weight: 500; color: #475569;">Upload CSV File</span>
+            <button type="button" class="btn btn-sm" style="padding: 3px 10px; font-size: 12px; font-weight: 500; border-radius: 4px; border: 1px solid #cbd5e1; background: #ffffff; cursor: pointer; color: #1e293b; box-shadow: 0 1px 2px rgba(0,0,0,0.05);" (click)="openApiModal($event)">🔑 API Upload</button>
+          </div>
+          <label class="script-label" style="margin-top: 0;">
             <input type="file" accept=".csv" (change)="onCsvSelected($event)" [disabled]="batchRunning() || scriptRunning()" />
           </label>
 
@@ -337,7 +337,7 @@
 
           <div class="script-actions">
             <button type="button" class="script-run-btn" (click)="saveCronSchedule()"
-              [disabled]="!cronExpression().trim() || !csvData().length || !scriptSource().trim()">
+              [disabled]="!cronExpression().trim()">
               💾 Save Schedule
             </button>
             @if (cronSchedule()) {
@@ -440,32 +440,32 @@
 </section>
 
 @if (apiModalOpen()) {
-<div class="modal-backdrop">
-  <div class="modal-content" style="max-width: 600px;">
+<div class="modal-backdrop" (click)="closeApiModal($event)">
+  <div class="modal-content" style="max-width: 580px;" (click)="$event.stopPropagation()">
     <div class="modal-header">
       <h2>Upload CSV via API</h2>
-      <button class="close-btn" (click)="closeApiModal()">×</button>
+      <button type="button" class="close-btn" (click)="closeApiModal($event)">×</button>
     </div>
     <div class="modal-body">
-      <p style="margin-top: 0;">Use the following cURL command to programmatically upload your CSV data to this workspace.</p>
+      <p style="margin-top: 0; color: #64748b; font-size: 0.875rem;">Use the following cURL command to programmatically upload or replace your CSV dataset for this workspace.</p>
 
       <div style="margin-bottom: 16px;">
-        <strong>API Secret Key</strong>
-        <div style="background: #f5f5f5; padding: 8px; border-radius: 4px; font-family: monospace; border: 1px solid #ddd; margin-top: 4px; color: #333;">
+        <label style="font-size: 0.8125rem; font-weight: 600; color: #334155;">Workspace API Key</label>
+        <div style="background: #f8fafc; padding: 10px 12px; border-radius: 6px; font-family: var(--font-mono); font-size: 0.85rem; border: 1px solid #e2e8f0; margin-top: 4px; color: #0f172a; word-break: break-all;">
           {{ workspaceStatus()?.apiKey || 'UNKNOWN' }}
         </div>
       </div>
 
-      <div style="margin-bottom: 16px;">
-        <strong>cURL Request</strong>
-        <div style="background: #f5f5f5; padding: 8px; border-radius: 4px; font-family: monospace; border: 1px solid #ddd; margin-top: 4px; white-space: pre-wrap; word-break: break-all; color: #333;">curl -X POST -H "Authorization: Bearer {{ workspaceStatus()?.apiKey || 'UNKNOWN' }}" -F "file=&#64;data.csv" {{ windowLocationOrigin }}/api/v1/workspaces/{{ workspaceId() }}/upload-csv</div>
+      <div style="margin-bottom: 20px;">
+        <label style="font-size: 0.8125rem; font-weight: 600; color: #334155;">cURL Request</label>
+        <div style="background: #0f172a; padding: 12px; border-radius: 6px; font-family: var(--font-mono); font-size: 0.8125rem; border: 1px solid #1e293b; margin-top: 4px; white-space: pre-wrap; word-break: break-all; color: #38bdf8;">curl -X POST -H "Authorization: Bearer {{ workspaceStatus()?.apiKey || 'UNKNOWN' }}" -F "file=&#64;data.csv" {{ windowLocationOrigin }}/api/v1/workspaces/{{ workspaceId() }}/upload-csv</div>
       </div>
 
       <div style="display: flex; justify-content: flex-end; align-items: center; gap: 12px;">
         @if (apiCurlCopied()) {
           <span style="color: #16a34a; font-size: 0.875rem; font-weight: 500;">✓ Copied to clipboard!</span>
         }
-        <button class="btn btn-primary" (click)="copyApiCurl()">{{ apiCurlCopied() ? 'Copied' : 'Copy cURL' }}</button>
+        <button type="button" class="btn btn-primary" style="padding: 8px 16px; border-radius: 6px; background: #1a73e8; color: #fff; border: none; font-weight: 500; cursor: pointer;" (click)="copyApiCurl()">{{ apiCurlCopied() ? 'Copied' : 'Copy cURL' }}</button>
       </div>
     </div>
   </div>

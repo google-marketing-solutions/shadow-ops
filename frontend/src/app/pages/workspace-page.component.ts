@@ -104,12 +104,20 @@ export class WorkspacePageComponent implements AfterViewInit, OnDestroy {
   readonly apiModalOpen = signal(false);
   readonly apiCurlCopied = signal(false);
 
-  openApiModal(): void {
+  openApiModal(event?: Event): void {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
     this.apiModalOpen.set(true);
     this.apiCurlCopied.set(false);
   }
 
-  closeApiModal(): void {
+  closeApiModal(event?: Event): void {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
     this.apiModalOpen.set(false);
     this.apiCurlCopied.set(false);
   }
@@ -581,14 +589,18 @@ export class WorkspacePageComponent implements AfterViewInit, OnDestroy {
   saveCronSchedule(): void {
     const workspaceId = this.workspaceId();
     const expr = this.cronExpression().trim();
-    if (!workspaceId || !expr || !this.csvData().length || !this.scriptSource().trim()) return;
+    if (!workspaceId || !expr) return;
 
-    const csvContent = Papa.unparse(this.csvData());
+    let csvContent = '';
+    if (this.csvData().length) {
+      csvContent = Papa.unparse(this.csvData());
+    }
+
     const payload = {
       cronExpression: expr,
-      scriptFilename: this.scriptFilename() || 'cron_automation.py',
-      scriptSource: this.scriptSource(),
-      csvFilename: this.csvFile()?.name || 'data.csv',
+      scriptFilename: this.scriptFilename() || this.cronSchedule()?.scriptFilename || 'cron_automation.py',
+      scriptSource: this.scriptSource() || '',
+      csvFilename: this.csvFile()?.name || this.cronSchedule()?.csvFilename || 'data.csv',
       csvData: csvContent
     };
 
@@ -603,6 +615,7 @@ export class WorkspacePageComponent implements AfterViewInit, OnDestroy {
             updatedAt: new Date().toISOString()
           });
           this.scriptPanelError.set(null);
+          this.loadBatchExecutions();
         },
         error: (err) => this.scriptPanelError.set(err?.error?.message ?? 'Failed to save cron schedule')
       });

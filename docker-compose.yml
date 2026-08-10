@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # Host Agent: Interacts with Docker daemon to launch workspace agents
   host-agent:
@@ -32,7 +30,6 @@ services:
       - DATA_DIR=/app/data
       - STATIC_DIR=/app/public
       - HOST_AGENT_URL=http://host-agent:8081
-      - WORKSPACE_AGENT_HOST=host.docker.internal
       - WORKSPACE_IMAGE_NAME=shadowops-workspace-agent:dev
       - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-pro}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -19,18 +20,18 @@ func (s *Server) workspaceImageName() string {
 
 func (s *Server) ensureWorkspaceImage() error {
 	s.imageBuildOnce.Do(func() {
+		// If docker CLI is not installed in the backend environment (e.g. running in container),
+		// the image is pre-built or managed by the host-agent daemon.
 		if _, err := exec.LookPath("docker"); err != nil {
-			s.imageBuildErr = fmt.Errorf("docker CLI not found: %w", err)
 			return
 		}
 		if _, stderr, err := s.runCmd(s.repoRoot, "docker", "info"); err != nil {
-			s.imageBuildErr = fmt.Errorf("docker daemon unavailable: %v (%s)", err, strings.TrimSpace(stderr))
+			log.Printf("warning: docker daemon unavailable (%v: %s), skipping local workspace image build", err, strings.TrimSpace(stderr))
 			return
 		}
 		buildDir := filepath.Join(s.repoRoot, "workspace-agent")
 		imageName := s.workspaceImageName()
-		_, stderr, err := s.runCmd(buildDir, "docker", "build", "-t", imageName, "-f", "Dockerfile", ".")
-		if err != nil {
+		if _, stderr, err := s.runCmd(buildDir, "docker", "build", "-t", imageName, "-f", "Dockerfile", "."); err != nil {
 			s.imageBuildErr = fmt.Errorf("docker build failed: %v (%s)", err, strings.TrimSpace(stderr))
 			return
 		}

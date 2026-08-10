@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -92,7 +93,13 @@ func LoadConfig(repoRoot string) *Config {
 	}
 	hostAgentURL = strings.TrimRight(hostAgentURL, "/")
 
-	wsHost := getEnv("WORKSPACE_AGENT_HOST", "127.0.0.1")
+	wsHost := strings.TrimSpace(os.Getenv("WORKSPACE_AGENT_HOST"))
+	if wsHost == "" {
+		wsHost = "127.0.0.1"
+		if _, err := net.LookupHost("host.docker.internal"); err == nil {
+			wsHost = "host.docker.internal"
+		}
+	}
 	wsPort := 8765
 	if portStr := os.Getenv("WORKSPACE_AGENT_PORT"); portStr != "" {
 		if p, err := strconv.Atoi(portStr); err == nil && p > 0 {

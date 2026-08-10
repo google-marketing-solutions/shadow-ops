@@ -20,10 +20,12 @@ type NavigateOutput struct {
 // InputPayload encapsulates browser mouse, wheel, keyboard, or viewport inputs.
 type InputPayload struct {
 	Type       string  `json:"type"`
+	Action     string  `json:"action,omitempty"`
 	Event      string  `json:"event,omitempty"`
 	X          float64 `json:"x,omitempty"`
 	Y          float64 `json:"y,omitempty"`
 	Button     string  `json:"button,omitempty"`
+	Buttons    int     `json:"buttons,omitempty"`
 	ClickCount int     `json:"clickCount,omitempty"`
 	DeltaX     float64 `json:"deltaX,omitempty"`
 	DeltaY     float64 `json:"deltaY,omitempty"`

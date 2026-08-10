@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -67,8 +68,26 @@ func NewRealAgentEngine(mgr *StateManager, opts RealAgentEngineOptions) (*RealAg
 	}
 	engine.pw = pw
 
+	if opts.UserDataDir == "" {
+		opts.UserDataDir = filepath.Join(os.TempDir(), fmt.Sprintf("shadowops-user-data-%s", opts.WorkspaceID))
+	}
+	_ = os.MkdirAll(opts.UserDataDir, 0755)
+
+	cdpPort := 9222
+	if envPort := os.Getenv("AGENT_PORT"); envPort != "" {
+		if p, err := strconv.Atoi(envPort); err == nil && p > 0 {
+			cdpPort = p + 1000
+		}
+	}
+	if envCDP := os.Getenv("CHROME_CDP_PORT"); envCDP != "" {
+		if p, err := strconv.Atoi(envCDP); err == nil && p > 0 {
+			cdpPort = p
+		}
+	}
+	_ = os.Setenv("CHROME_CDP_URL", fmt.Sprintf("http://127.0.0.1:%d", cdpPort))
+
 	launchArgs := []string{
-		"--remote-debugging-port=9222",
+		fmt.Sprintf("--remote-debugging-port=%d", cdpPort),
 		"--remote-debugging-address=0.0.0.0",
 		"--no-sandbox",
 		"--disable-setuid-sandbox",
@@ -158,15 +177,17 @@ func NewRealAgentEngine(mgr *StateManager, opts RealAgentEngineOptions) (*RealAg
 	engine.page = page
 	attachPageListeners(page)
 
-	// Navigate to initial URL (Google sign-in)
-	initialURL := "https://accounts.google.com/ServiceLogin/signinchooser"
-	_, _ = page.Goto(initialURL, playwright.PageGotoOptions{
-		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
-		Timeout:   playwright.Float(20000),
-	})
-	engine.stateMgr.UpdateState(func(s *AgentState) {
-		s.CurrentURL = page.URL()
-	})
+	// Navigate to initial URL (Google sign-in) in background so agent listens immediately
+	go func() {
+		initialURL := "https://accounts.google.com/ServiceLogin/signinchooser"
+		_, _ = page.Goto(initialURL, playwright.PageGotoOptions{
+			WaitUntil: playwright.WaitUntilStateDomcontentloaded,
+			Timeout:   playwright.Float(20000),
+		})
+		engine.stateMgr.UpdateState(func(s *AgentState) {
+			s.CurrentURL = page.URL()
+		})
+	}()
 
 	return engine, nil
 }
@@ -174,15 +195,15 @@ func NewRealAgentEngine(mgr *StateManager, opts RealAgentEngineOptions) (*RealAg
 func (e *RealAgentEngine) getActivePage() playwright.Page {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.page != nil && !e.page.IsClosed() {
-		return e.page
-	}
 	if e.context != nil {
 		pages := e.context.Pages()
 		if len(pages) > 0 {
 			e.page = pages[len(pages)-1]
 			return e.page
 		}
+	}
+	if e.page != nil && !e.page.IsClosed() {
+		return e.page
 	}
 	return nil
 }
@@ -250,8 +271,13 @@ func (e *RealAgentEngine) HandleInput(ctx context.Context, in InputPayload) erro
 		return fmt.Errorf("browser page is unavailable")
 	}
 
+	action := in.Action
+	if action == "" {
+		action = in.Event
+	}
+
 	switch in.Type {
-	case "viewport.resize":
+	case "viewport.resize", "resize":
 		if in.Width > 0 && in.Height > 0 {
 			w := max(800, min(1600, in.Width))
 			h := max(520, min(1000, in.Height))
@@ -262,13 +288,13 @@ func (e *RealAgentEngine) HandleInput(ctx context.Context, in InputPayload) erro
 			_ = page.SetViewportSize(w, h)
 		}
 
-	case "input.mouse":
+	case "input.mouse", "mouse":
 		clickCount := in.ClickCount
 		if clickCount < 1 {
 			clickCount = 1
 		}
 		btn := playwright.MouseButtonLeft
-		if in.Button == "right" {
+		if in.Button == "right" || in.Button == "secondary" {
 			btn = playwright.MouseButtonRight
 		} else if in.Button == "middle" {
 			btn = playwright.MouseButtonMiddle
@@ -277,15 +303,15 @@ func (e *RealAgentEngine) HandleInput(ctx context.Context, in InputPayload) erro
 		e.stateMgr.UpdateState(func(s *AgentState) {
 			s.CursorX = int(in.X)
 			s.CursorY = int(in.Y)
-			if in.Event == "down" {
+			if action == "down" {
 				s.MouseDown = true
-			} else if in.Event == "up" || in.Event == "click" {
+			} else if action == "up" || action == "click" {
 				s.MouseDown = false
 			}
 		})
 
-		switch in.Event {
-		case "move":
+		switch action {
+		case "move", "":
 			_ = page.Mouse().Move(in.X, in.Y)
 		case "down":
 			_ = page.Mouse().Move(in.X, in.Y)
@@ -299,13 +325,21 @@ func (e *RealAgentEngine) HandleInput(ctx context.Context, in InputPayload) erro
 				Button:     btn,
 				ClickCount: playwright.Int(clickCount),
 			})
+		case "click":
+			_ = page.Mouse().Click(in.X, in.Y, playwright.MouseClickOptions{
+				Button:     btn,
+				ClickCount: playwright.Int(clickCount),
+			})
 		}
 
-	case "input.wheel":
+	case "input.wheel", "wheel":
 		_ = page.Mouse().Wheel(in.DeltaX, in.DeltaY)
 
-	case "input.key":
-		if in.Event != "down" || in.Key == "" {
+	case "input.key", "keyboard":
+		if !(action == "" || action == "down" || action == "keydown" || action == "press") {
+			return nil
+		}
+		if in.Key == "" {
 			return nil
 		}
 		pwKey := toPlaywrightKeyName(in.Key)
