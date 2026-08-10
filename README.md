@@ -230,6 +230,7 @@ ShadowOps exposes a full REST API for programmatic orchestration:
 | `POST` | `/api/v1/workspaces/{id}/upload-csv` | Programmatically upload/replace workspace CSV |
 | `GET` | `/api/v1/workspaces/{id}/cron` | Get workspace cron schedule and execution history |
 | `POST` | `/api/v1/workspaces/{id}/cron` | Set or update workspace cron automation schedule |
+| `GET` | `/api/v1/default-scripts` | List built-in default Playwright scripts in `backend/default-playwright-scripts/` |
 
 ---
 

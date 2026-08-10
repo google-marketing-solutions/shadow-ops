@@ -34,6 +34,11 @@ The ShadowOps backend is a high-performance Go service (Go 1.24, `net/http`) res
 ### 6. AI Code Generation (`gemini.go`)
 - **Gemini Integration**: Calls Google Gemini models (`gemini-2.5-pro`) to synthesize production-ready Python Playwright scripts from recorded ActionSet JSON timelines.
 
+### 7. Pre-Packaged Default Scripts (`default-playwright-scripts/`)
+- **Built-In Automation Templates**: Serves baseline automation scripts located in `backend/default-playwright-scripts/` to the UI via `GET /api/v1/default-scripts`.
+- **UI Integration**: Adding standard `.py` Playwright automation scripts into the `backend/default-playwright-scripts/` directory automatically makes them visible and selectable in the workspace UI script dropdown without manual file uploading.
+- **Docker Packaging**: The Docker build runtime creates `/app/backend/default-playwright-scripts` and optionally copies any local default scripts into the image without requiring scripts to be pre-committed.
+
 ---
 
 ## REST API Endpoints
@@ -52,5 +57,6 @@ The ShadowOps backend is a high-performance Go service (Go 1.24, `net/http`) res
 | `/api/v1/workspaces/:id/script/cancel` | `POST` | Abort a running script |
 | `/api/v1/workspaces/:id/upload-csv` | `POST` | Upload CSV dataset via API Key |
 | `/api/v1/workspaces/:id/cron` | `GET` / `POST` | Manage automated cron schedules |
+| `/api/v1/default-scripts` | `GET` | List pre-packaged default Playwright scripts |
 | `/api/v1/actionsets` | `GET` / `POST` | List and save recorded ActionSets |
 | `/api/v1/generate-script` | `POST` | Generate Python Playwright script via Gemini AI |
