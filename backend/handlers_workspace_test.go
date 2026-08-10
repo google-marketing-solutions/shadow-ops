@@ -173,3 +173,63 @@ func TestHandleRenameWorkspace(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadAllWorkspaces(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "load_workspaces_test_*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	db := InitDB(tmpDir)
+	defer db.Close()
+
+	// Mock HTTP server for health check
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		}
+	}))
+	defer ts.Close()
+
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	// Insert mock active workspace with valid health check
+	_, err = db.Exec(`INSERT INTO workspaces (id, name, target_app, api_key, agent_port, container_id, agent_base_url, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"ws_persisted", "Persisted Workspace", "google_ads", "sk_test_persisted", 9999, "container_123", ts.URL, now, now)
+	if err != nil {
+		t.Fatalf("failed to insert mock workspace: %v", err)
+	}
+
+	// Insert mock dead workspace with invalid URL
+	_, err = db.Exec(`INSERT INTO workspaces (id, name, target_app, api_key, agent_port, container_id, agent_base_url, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"ws_dead", "Dead Workspace", "google_ads", "sk_test_dead", 9998, "container_456", "http://127.0.0.1:54321", now, now)
+	if err != nil {
+		t.Fatalf("failed to insert dead workspace: %v", err)
+	}
+
+	srv := NewServer(tmpDir, tmpDir, db)
+	srv.routes()
+
+	srv.mu.RLock()
+	ws, ok := srv.workspaces["ws_persisted"]
+	srv.mu.RUnlock()
+
+	if !ok {
+		t.Fatalf("expected ws_persisted to be recovered on server startup")
+	}
+	if ws.Name != "Persisted Workspace" {
+		t.Errorf("expected name 'Persisted Workspace', got '%s'", ws.Name)
+	}
+	if ws.APIKey != "sk_test_persisted" {
+		t.Errorf("expected apiKey 'sk_test_persisted', got '%s'", ws.APIKey)
+	}
+
+	srv.mu.RLock()
+	_, deadOk := srv.workspaces["ws_dead"]
+	srv.mu.RUnlock()
+	if deadOk {
+		t.Fatalf("did not expect unreachable ws_dead to be added to active workspaces")
+	}
+}

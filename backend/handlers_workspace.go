@@ -109,8 +109,8 @@ func (s *Server) handleCreateWorkspace(w http.ResponseWriter, r *http.Request) {
 	s.workspaces[id] = ws
 	s.mu.Unlock()
 
-	_, err = s.db.Exec(`INSERT OR REPLACE INTO workspaces (id, name, target_app, api_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
-		ws.ID, ws.Name, ws.TargetApp, ws.APIKey, ws.CreatedAt.Format(time.RFC3339), ws.UpdatedAt.Format(time.RFC3339))
+	_, err = s.db.Exec(`INSERT OR REPLACE INTO workspaces (id, name, target_app, api_key, agent_port, container_id, agent_base_url, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		ws.ID, ws.Name, ws.TargetApp, ws.APIKey, ws.AgentPort, ws.DockerContainerID, ws.AgentBaseURL, ws.CreatedAt.Format(time.RFC3339), ws.UpdatedAt.Format(time.RFC3339))
 	if err != nil {
 		log.Printf("warning: failed inserting workspace %s into sqlite: %v", id, err)
 	}
@@ -237,6 +237,8 @@ func (s *Server) handleKillWorkspace(w http.ResponseWriter, r *http.Request) {
 	ws.UpdatedAt = now
 	ws.mu.Unlock()
 	s.broadcastEvent(ws, map[string]any{"type": "workspace.status", "status": "killed", "recordingState": "off", "currentUrl": ws.CurrentURL})
+
+	_, _ = s.db.Exec(`DELETE FROM workspaces WHERE id = ?`, ws.ID)
 
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "status": "killed"})
 }

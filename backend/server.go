@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -53,8 +54,91 @@ func NewServerWithConfig(cfg *Config, db *sql.DB) *Server {
 		actionSets:       map[string]*ActionSet{},
 		shadowopsEnabled: cfg.ShadowOpsEnabled,
 	}
+	s.loadAllWorkspaces()
 	s.cronScheduler = NewCronScheduler(s)
 	return s
+}
+
+func (s *Server) loadAllWorkspaces() {
+	if s.db == nil {
+		return
+	}
+	rows, err := s.db.Query("SELECT id, name, target_app, api_key, agent_port, container_id, agent_base_url, created_at, updated_at FROM workspaces")
+	if err != nil {
+		log.Printf("failed to load workspaces from db: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id string
+		var name, targetApp, apiKey, containerID, agentBaseURL, createdAtStr, updatedAtStr sql.NullString
+		var agentPort sql.NullInt64
+		if err := rows.Scan(&id, &name, &targetApp, &apiKey, &agentPort, &containerID, &agentBaseURL, &createdAtStr, &updatedAtStr); err != nil {
+			log.Printf("failed to scan workspace: %v", err)
+			continue
+		}
+
+		wsName := name.String
+		if wsName == "" {
+			wsName = "Workspace"
+		}
+		wsTargetApp := targetApp.String
+		if wsTargetApp == "" {
+			wsTargetApp = "google_ads"
+		}
+		wsAPIKey := apiKey.String
+		if wsAPIKey == "" {
+			wsAPIKey = "sk_" + shortID()
+		}
+
+		createdAt, _ := time.Parse(time.RFC3339, createdAtStr.String)
+		updatedAt, _ := time.Parse(time.RFC3339, updatedAtStr.String)
+		if createdAt.IsZero() {
+			createdAt = time.Now().UTC()
+		}
+		if updatedAt.IsZero() {
+			updatedAt = time.Now().UTC()
+		}
+
+		port := int(agentPort.Int64)
+		wsAgentBaseURL := agentBaseURL.String
+		if wsAgentBaseURL == "" && port > 0 {
+			wsAgentBaseURL = s.workspaceAgentURL(port)
+		}
+		if wsAgentBaseURL == "" {
+			continue
+		}
+
+		ws := &Workspace{
+			ID:                id,
+			Name:              wsName,
+			TargetApp:         wsTargetApp,
+			APIKey:            wsAPIKey,
+			Status:            "active",
+			RecordingState:    "off",
+			CreatedAt:         createdAt,
+			UpdatedAt:         updatedAt,
+			AgentPort:         port,
+			AgentBaseURL:      wsAgentBaseURL,
+			DockerContainerID: containerID.String,
+			clients:           map[*WSClient]struct{}{},
+		}
+
+		// Check if agent is healthy
+		if err := s.waitForAgentHealth(ws, 2*time.Second); err != nil {
+			log.Printf("workspace %s agent not healthy at %s: %v", id, wsAgentBaseURL, err)
+			continue
+		}
+
+		s.mu.Lock()
+		s.workspaces[id] = ws
+		s.mu.Unlock()
+
+		_ = s.refreshWorkspaceStatus(ws)
+		go s.consumeAgentEvents(ws)
+		log.Printf("recovered workspace %s (name: %s, port: %d)", id, wsName, port)
+	}
 }
 
 func (s *Server) serveStaticOrSPA(w http.ResponseWriter, r *http.Request) {

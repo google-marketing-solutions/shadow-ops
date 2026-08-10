@@ -69,6 +69,9 @@ func InitDB(dataDir string) *sql.DB {
 		"name" TEXT,
 		"target_app" TEXT,
 		"api_key" TEXT,
+		"agent_port" INTEGER,
+		"container_id" TEXT,
+		"agent_base_url" TEXT,
 		"created_at" TEXT,
 		"updated_at" TEXT
 	);`
@@ -76,8 +79,11 @@ func InitDB(dataDir string) *sql.DB {
 		log.Fatalf("failed to create workspaces table: %v", err)
 	}
 
-	// For existing DBs, attempt to add api_key column safely
+	// For existing DBs, attempt to add columns safely
 	_, _ = db.Exec(`ALTER TABLE workspaces ADD COLUMN api_key TEXT;`)
+	_, _ = db.Exec(`ALTER TABLE workspaces ADD COLUMN agent_port INTEGER;`)
+	_, _ = db.Exec(`ALTER TABLE workspaces ADD COLUMN container_id TEXT;`)
+	_, _ = db.Exec(`ALTER TABLE workspaces ADD COLUMN agent_base_url TEXT;`)
 
 	log.Println("Database initialized successfully.")
 	return db
