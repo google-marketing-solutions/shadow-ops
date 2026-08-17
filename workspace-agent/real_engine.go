@@ -27,6 +27,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/playwright-community/playwright-go"
@@ -53,6 +54,7 @@ type RealAgentEngine struct {
 	currentCmd   *exec.Cmd
 	cmdCancel    context.CancelFunc
 	shadowActive bool
+	isRendering  atomic.Bool
 	steps        []ShadowStep
 	options      RealAgentEngineOptions
 }
@@ -211,9 +213,18 @@ func (e *RealAgentEngine) getActivePage() playwright.Page {
 	defer e.mu.Unlock()
 	if e.context != nil {
 		pages := e.context.Pages()
-		if len(pages) > 0 {
-			e.page = pages[len(pages)-1]
-			return e.page
+		// Iterate backwards to find the last valid, non-closed, visible page
+		for i := len(pages) - 1; i >= 0; i-- {
+			p := pages[i]
+			if p != nil && !p.IsClosed() {
+				u := p.URL()
+				// Skip background check connection utility iframes if main pages exist
+				if strings.Contains(u, "CheckConnection") && len(pages) > 1 {
+					continue
+				}
+				e.page = p
+				return e.page
+			}
 		}
 	}
 	if e.page != nil && !e.page.IsClosed() {
@@ -367,6 +378,15 @@ func (e *RealAgentEngine) HandleInput(ctx context.Context, in InputPayload) erro
 				_ = page.Keyboard().Press(pwKey)
 			}
 		}
+
+	case "navigate":
+		navURL := in.URL
+		if navURL == "" {
+			navURL = in.Key
+		}
+		if navURL != "" {
+			_, _ = e.Navigate(ctx, NavigateInput{URL: navURL})
+		}
 	}
 
 	return nil
@@ -405,15 +425,23 @@ func (e *RealAgentEngine) EndShadow(ctx context.Context) ([]ShadowStep, error) {
 
 // RenderFrame captures a real JPEG screenshot from the active Playwright page.
 func (e *RealAgentEngine) RenderFrame(ctx context.Context) (*FrameEvent, error) {
+	if !e.isRendering.CompareAndSwap(false, true) {
+		// Frame capture already in-flight, skip tick to prevent backpressure
+		return nil, nil
+	}
+	defer e.isRendering.Store(false)
+
 	page := e.getActivePage()
 	if page == nil {
 		return nil, fmt.Errorf("page unavailable")
 	}
 
 	jpegBytes, err := page.Screenshot(playwright.PageScreenshotOptions{
-		Type:     playwright.ScreenshotTypeJpeg,
-		Quality:  playwright.Int(65),
-		FullPage: playwright.Bool(false),
+		Type:       playwright.ScreenshotTypeJpeg,
+		Quality:    playwright.Int(65),
+		FullPage:   playwright.Bool(false),
+		Animations: playwright.ScreenshotAnimationsDisabled,
+		Timeout:    playwright.Float(1000),
 	})
 	if err != nil {
 		return nil, err

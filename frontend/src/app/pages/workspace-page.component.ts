@@ -690,10 +690,23 @@ export class WorkspacePageComponent implements AfterViewInit, OnDestroy {
       });
   }
 
+  private lastMouseMoveTime = 0;
+  private readonly MOUSE_MOVE_THROTTLE_MS = 40; // 25fps max for move events
+  private lastWheelTime = 0;
+  private readonly WHEEL_THROTTLE_MS = 40;
+
   onViewportMouse(event: MouseEvent, action: 'down' | 'up' | 'move' | 'click'): void {
     if (this.scriptRunning()) return;
     const coords = this.normalizeCoordinates(event);
     if (!coords) return;
+
+    if (action === 'move') {
+      const now = performance.now();
+      if (now - this.lastMouseMoveTime < this.MOUSE_MOVE_THROTTLE_MS) {
+        return;
+      }
+      this.lastMouseMoveTime = now;
+    }
 
     this.wsHandle?.send({
       type: 'mouse',
@@ -711,6 +724,12 @@ export class WorkspacePageComponent implements AfterViewInit, OnDestroy {
     event.preventDefault();
     const coords = this.normalizeCoordinates(event);
     if (!coords) return;
+
+    const now = performance.now();
+    if (now - this.lastWheelTime < this.WHEEL_THROTTLE_MS) {
+      return;
+    }
+    this.lastWheelTime = now;
 
     this.wsHandle?.send({
       type: 'wheel',

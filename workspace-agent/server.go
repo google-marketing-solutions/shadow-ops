@@ -26,17 +26,88 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// ClientConn wraps a WebSocket connection with synchronized writes.
+const (
+	writeWait      = 2 * time.Second
+	pongWait       = 60 * time.Second
+	pingPeriod     = (pongWait * 9) / 10
+	maxMessageSize = 1024 * 1024
+	sendBufferSize = 16
+)
+
+// ClientConn wraps a WebSocket connection with asynchronous buffered writes.
 type ClientConn struct {
-	conn *websocket.Conn
-	mu   sync.Mutex
+	conn   *websocket.Conn
+	send   chan []byte
+	server *AgentServer
 }
 
-// WriteJSON sends a JSON message over the WebSocket safely.
+func (c *ClientConn) writePump() {
+	ticker := time.NewTicker(pingPeriod)
+	defer func() {
+		ticker.Stop()
+		_ = c.conn.Close()
+	}()
+
+	for {
+		select {
+		case message, ok := <-c.send:
+			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if !ok {
+				_ = c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				return
+			}
+			if err := c.conn.WriteMessage(websocket.TextMessage, message); err != nil {
+				return
+			}
+		case <-ticker.C:
+			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
+		}
+	}
+}
+
+func (c *ClientConn) readPump() {
+	defer func() {
+		c.server.removeClient(c)
+		_ = c.conn.Close()
+	}()
+
+	c.conn.SetReadLimit(maxMessageSize)
+	_ = c.conn.SetReadDeadline(time.Now().Add(pongWait))
+	c.conn.SetPongHandler(func(string) error {
+		_ = c.conn.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
+
+	for {
+		var msg map[string]interface{}
+		if err := c.conn.ReadJSON(&msg); err != nil {
+			break
+		}
+		c.server.handleIncomingWSMessage(msg)
+	}
+}
+
+// SendJSON enqueues a JSON message for asynchronous non-blocking delivery.
+func (c *ClientConn) SendJSON(v interface{}) error {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	select {
+	case c.send <- data:
+		return nil
+	default:
+		// Drop message if client buffer is full to prevent blocking
+		return nil
+	}
+}
+
+// WriteJSON sends a JSON message over the WebSocket safely (for compatibility).
 func (c *ClientConn) WriteJSON(v interface{}) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.conn.WriteJSON(v)
+	return c.SendJSON(v)
 }
 
 // AgentServer serves HTTP REST and WebSocket endpoints for the workspace agent.
@@ -86,21 +157,33 @@ func (s *AgentServer) SetupRoutes(mux *http.ServeMux) {
 // StartFrameLoop begins periodic frame rendering and broadcast.
 func (s *AgentServer) StartFrameLoop() {
 	go func() {
-		ticker := time.NewTicker(400 * time.Millisecond)
-		defer ticker.Stop()
-
 		for {
 			select {
 			case <-s.frameStop:
 				return
-			case <-ticker.C:
-				if s.numClients() == 0 {
+			default:
+			}
+
+			if s.numClients() == 0 {
+				select {
+				case <-s.frameStop:
+					return
+				case <-time.After(300 * time.Millisecond):
 					continue
 				}
-				frame, err := s.engine.RenderFrame(context.Background())
-				if err == nil && frame != nil {
-					s.Broadcast(frame)
-				}
+			}
+
+			frame, err := s.engine.RenderFrame(context.Background())
+			if err != nil {
+				// Avoid flooding log on transient navigation frames
+			} else if frame != nil {
+				s.Broadcast(frame)
+			}
+
+			select {
+			case <-s.frameStop:
+				return
+			case <-time.After(350 * time.Millisecond):
 			}
 		}
 	}()
@@ -121,8 +204,22 @@ func (s *AgentServer) numClients() int {
 	return len(s.clients)
 }
 
-// Broadcast sends a message to all connected WebSocket clients.
+func (s *AgentServer) removeClient(c *ClientConn) {
+	s.clientsMu.Lock()
+	if _, ok := s.clients[c]; ok {
+		delete(s.clients, c)
+		close(c.send)
+	}
+	s.clientsMu.Unlock()
+}
+
+// Broadcast sends a message to all connected WebSocket clients asynchronously without blocking.
 func (s *AgentServer) Broadcast(v interface{}) {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return
+	}
+
 	s.clientsMu.RLock()
 	conns := make([]*ClientConn, 0, len(s.clients))
 	for c := range s.clients {
@@ -131,11 +228,10 @@ func (s *AgentServer) Broadcast(v interface{}) {
 	s.clientsMu.RUnlock()
 
 	for _, c := range conns {
-		if err := c.WriteJSON(v); err != nil {
-			s.clientsMu.Lock()
-			delete(s.clients, c)
-			s.clientsMu.Unlock()
-			_ = c.conn.Close()
+		select {
+		case c.send <- data:
+		default:
+			// Buffer full, drop frame without stalling loop
 		}
 	}
 }
@@ -388,40 +484,32 @@ func (s *AgentServer) handleEventsWS(w http.ResponseWriter, r *http.Request) {
 		log.Printf("failed to upgrade websocket: %v", err)
 		return
 	}
-	client := &ClientConn{conn: conn}
+	client := &ClientConn{
+		conn:   conn,
+		send:   make(chan []byte, sendBufferSize),
+		server: s,
+	}
 
 	s.clientsMu.Lock()
 	s.clients[client] = true
 	s.clientsMu.Unlock()
 
-	defer func() {
-		s.clientsMu.Lock()
-		delete(s.clients, client)
-		s.clientsMu.Unlock()
-		_ = conn.Close()
-	}()
-
 	st := s.stateMgr.GetState()
-	_ = client.WriteJSON(map[string]interface{}{
+	_ = client.SendJSON(map[string]interface{}{
 		"type":           "workspace.status",
 		"status":         st.Status,
 		"recordingState": st.RecordingState,
 		"currentUrl":     st.CurrentURL,
 	})
 	for _, step := range st.Steps {
-		_ = client.WriteJSON(map[string]interface{}{
+		_ = client.SendJSON(map[string]interface{}{
 			"type": "shadow.step",
 			"step": step,
 		})
 	}
 
-	for {
-		var msg map[string]interface{}
-		if err := conn.ReadJSON(&msg); err != nil {
-			break
-		}
-		s.handleIncomingWSMessage(msg)
-	}
+	go client.writePump()
+	client.readPump() // blocks until client disconnects
 }
 
 func (s *AgentServer) handleIncomingWSMessage(msg map[string]interface{}) {

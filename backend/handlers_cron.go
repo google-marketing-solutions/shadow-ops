@@ -72,10 +72,18 @@ func (s *Server) handleSetWorkspaceCron(w http.ResponseWriter, r *http.Request) 
 	err := s.db.QueryRow("SELECT script_filename, script_source, csv_filename, csv_data FROM workspace_crons WHERE workspace_id = ?", workspaceID).
 		Scan(&existing.ScriptFilename, &existing.ScriptSource, &existing.CsvFilename, &existing.CsvData)
 	if err == nil {
-		if req.ScriptFilename == "" { req.ScriptFilename = existing.ScriptFilename }
-		if req.ScriptSource == "" { req.ScriptSource = existing.ScriptSource }
-		if req.CsvFilename == "" { req.CsvFilename = existing.CsvFilename }
-		if req.CsvData == "" { req.CsvData = existing.CsvData }
+		if req.ScriptFilename == "" {
+			req.ScriptFilename = existing.ScriptFilename
+		}
+		if req.ScriptSource == "" {
+			req.ScriptSource = existing.ScriptSource
+		}
+		if req.CsvFilename == "" {
+			req.CsvFilename = existing.CsvFilename
+		}
+		if req.CsvData == "" {
+			req.CsvData = existing.CsvData
+		}
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)

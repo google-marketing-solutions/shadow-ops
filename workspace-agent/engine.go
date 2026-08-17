@@ -36,6 +36,7 @@ type InputPayload struct {
 	Type       string  `json:"type"`
 	Action     string  `json:"action,omitempty"`
 	Event      string  `json:"event,omitempty"`
+	URL        string  `json:"url,omitempty"`
 	X          float64 `json:"x,omitempty"`
 	Y          float64 `json:"y,omitempty"`
 	Button     string  `json:"button,omitempty"`

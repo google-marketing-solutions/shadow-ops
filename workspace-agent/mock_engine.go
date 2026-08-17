@@ -94,6 +94,14 @@ func (e *MockAgentEngine) HandleInput(ctx context.Context, in InputPayload) erro
 			} else if action == "up" || action == "click" {
 				s.MouseDown = false
 			}
+		} else if in.Type == "navigate" {
+			navURL := in.URL
+			if navURL == "" {
+				navURL = in.Key
+			}
+			if navURL != "" {
+				s.CurrentURL = navURL
+			}
 		}
 	})
 	return nil

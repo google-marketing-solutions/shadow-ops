@@ -79,10 +79,23 @@ func (s *Server) handleWorkspaceWS(w http.ResponseWriter, r *http.Request) {
 			_ = client.writeJSON(map[string]any{"type": "error", "code": "INVALID_WS_MESSAGE", "message": "Invalid JSON"})
 			continue
 		}
-		if err := s.agentPostJSON(ws, "/input", msg, nil); err != nil {
-			_ = client.writeJSON(map[string]any{"type": "error", "code": "AGENT_INPUT_FAILED", "message": err.Error()})
+		if msgType, _ := msg["type"].(string); msgType == "navigate" {
+			navURL, _ := msg["url"].(string)
+			if navURL != "" {
+				var resp map[string]any
+				if err := s.agentPostJSON(ws, "/navigate", map[string]any{"url": navURL}, &resp); err != nil {
+					_ = client.writeJSON(map[string]any{"type": "error", "code": "AGENT_NAVIGATE_FAILED", "message": err.Error()})
+				} else {
+					_ = s.refreshWorkspaceStatus(ws)
+				}
+			}
 			continue
 		}
+		go func(inputMsg map[string]any) {
+			if err := s.agentPostJSON(ws, "/input", inputMsg, nil); err != nil {
+				_ = client.writeJSON(map[string]any{"type": "error", "code": "AGENT_INPUT_FAILED", "message": err.Error()})
+			}
+		}(msg)
 	}
 }
 
@@ -107,18 +120,44 @@ func (s *Server) consumeAgentEvents(ws *Workspace) {
 			continue
 		}
 
+		conn.SetReadLimit(1024 * 1024)
+		_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		conn.SetPongHandler(func(string) error {
+			_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+			return nil
+		})
+
+		pingDone := make(chan struct{})
+		go func() {
+			ticker := time.NewTicker(20 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-pingDone:
+					return
+				case <-ticker.C:
+					_ = conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
+					if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+						return
+					}
+				}
+			}
+		}()
+
 		for {
 			_, payload, err := conn.ReadMessage()
 			if err != nil {
 				log.Printf("agent events read ended (%s): %v", ws.ID, err)
 				s.broadcastEvent(ws, map[string]any{"type": "error", "code": "WORKSPACE_DISCONNECTED", "message": "Workspace agent disconnected"})
-				conn.Close()
 				break
 			}
+			_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 			s.processAgentEvent(ws, payload)
 			s.broadcastRaw(ws, payload)
 		}
 
+		close(pingDone)
+		_ = conn.Close()
 		time.Sleep(1 * time.Second)
 	}
 }
@@ -193,11 +232,13 @@ func (s *Server) broadcastRaw(ws *Workspace, payload []byte) {
 func (c *WSClient) writeJSON(v any) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	_ = c.conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
 	return c.conn.WriteJSON(v)
 }
 
 func (c *WSClient) writeRaw(payload []byte) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	_ = c.conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
 	return c.conn.WriteMessage(websocket.TextMessage, payload)
 }
