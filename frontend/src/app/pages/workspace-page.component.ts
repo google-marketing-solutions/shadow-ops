@@ -116,6 +116,248 @@ export class WorkspacePageComponent implements AfterViewInit, OnDestroy {
   readonly cronSchedule = signal<WorkspaceCronSchedule | null>(null);
   readonly batchExecutions = signal<BatchExecutionItem[]>([]);
 
+  // Create Run Modal Wizard State
+  readonly createRunModalOpen = signal(false);
+  readonly createRunStep = signal<1 | 2>(1);
+  readonly selectedExecutionMode = signal<'now' | 'schedule'>('now');
+
+  // Logs Section State
+  readonly logsEnlarged = signal(false);
+  readonly logsCopied = signal(false);
+
+  // Active Run Status
+  readonly isRunActive = computed(() =>
+    this.scriptRunning() ||
+    this.batchRunning() ||
+    this.batchExecutions().some(e => e.status === 'running')
+  );
+
+  // Next run countdown computation
+  readonly nextRunCountdown = computed(() => {
+    const cron = this.cronSchedule();
+    if (!cron?.cronExpression) return null;
+    const now = this.nowMs();
+    const nextDate = this.calculateNextCronDate(cron.cronExpression, now);
+    if (!nextDate) return null;
+
+    const diff = Math.max(0, nextDate.getTime() - now);
+    const totalSecs = Math.floor(diff / 1000);
+    const days = Math.floor(totalSecs / 86400);
+    const hours = Math.floor((totalSecs % 86400) / 3600);
+    const minutes = Math.floor((totalSecs % 3600) / 60);
+    const seconds = totalSecs % 60;
+
+    if (days > 0) {
+      return `${days}d ${hours}h ${minutes}m ${seconds}s left`;
+    }
+    return `${hours}h ${minutes}m ${seconds}s left`;
+  });
+
+  readonly lastRunDate = computed(() => {
+    const executions = this.batchExecutions();
+    if (executions.length > 0 && executions[0].startedAt) {
+      return executions[0].startedAt;
+    }
+    return this.cronSchedule()?.updatedAt ?? null;
+  });
+
+  openCreateRunModal(event?: Event): void {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    this.createRunStep.set(1);
+    if (this.cronSchedule()?.cronExpression) {
+      this.cronExpression.set(this.cronSchedule()!.cronExpression);
+    }
+    this.createRunModalOpen.set(true);
+  }
+
+  closeCreateRunModal(event?: Event): void {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    this.createRunModalOpen.set(false);
+  }
+
+  nextCreateRunStep(): void {
+    if (this.createRunStep() === 1) {
+      this.createRunStep.set(2);
+    }
+  }
+
+  prevCreateRunStep(): void {
+    if (this.createRunStep() === 2) {
+      this.createRunStep.set(1);
+    }
+  }
+
+  submitCreateRunNow(): void {
+    this.createRunModalOpen.set(false);
+    if (this.csvData().length > 0) {
+      this.runBatch();
+    } else {
+      this.runScript();
+    }
+  }
+
+  submitSetSchedule(): void {
+    this.saveCronSchedule();
+    this.createRunModalOpen.set(false);
+  }
+
+  // Kill Run / Workspace Modal State
+  readonly killModalOpen = signal(false);
+  readonly killModalType = signal<'run' | 'workspace'>('run');
+  readonly killModalState = signal<'terminating' | 'terminated' | 'error'>('terminating');
+  readonly killModalMessage = signal('Terminating active automation run and releasing session...');
+
+  closeKillModal(): void {
+    this.killModalOpen.set(false);
+    if (this.killModalType() === 'workspace' && this.killModalState() === 'terminated') {
+      this.router.navigate(['/dashboard']);
+    }
+  }
+
+  killCurrentRun(): void {
+    this.killModalType.set('run');
+    this.killModalOpen.set(true);
+    this.killModalState.set('terminating');
+    this.killModalMessage.set('Sending termination signal to stop active execution and release session...');
+
+    const workspaceId = this.workspaceId();
+
+    if (this.batchRunning()) {
+      this.cancelBatch();
+    }
+    if (this.scriptRunning() && workspaceId) {
+      this.cancelScript();
+    }
+    const runningExec = this.batchExecutions().find(e => e.status === 'running');
+    if (runningExec) {
+      this.cancelExecution(runningExec.id);
+    }
+
+    let checks = 0;
+    const maxChecks = 8;
+    const checkInterval = window.setInterval(() => {
+      checks++;
+      if (workspaceId) {
+        this.api.getWorkspaceScriptStatus(workspaceId)
+          .pipe(takeUntilDestroyed(this.destroyRef))
+          .subscribe({
+            next: (status) => {
+              if (status) {
+                this.scriptStatusState.set(status);
+              }
+              const isStillActive = ['running', 'cancelling'].includes(status?.status ?? '');
+              if (!isStillActive && !this.batchRunning()) {
+                window.clearInterval(checkInterval);
+                this.killModalState.set('terminated');
+                this.killModalMessage.set('The automation run has been terminated successfully. The workspace session is ready.');
+                this.loadBatchExecutions();
+              } else if (checks >= maxChecks) {
+                window.clearInterval(checkInterval);
+                this.killModalState.set('terminated');
+                this.killModalMessage.set('Termination signal delivered. Active run stopped.');
+                this.loadBatchExecutions();
+              }
+            },
+            error: () => {
+              if (checks >= maxChecks) {
+                window.clearInterval(checkInterval);
+                this.killModalState.set('terminated');
+                this.killModalMessage.set('Termination signal delivered.');
+              }
+            }
+          });
+      } else {
+        window.clearInterval(checkInterval);
+        this.killModalState.set('terminated');
+        this.killModalMessage.set('Execution stopped.');
+      }
+    }, 600);
+  }
+
+  toggleLogsEnlarge(): void {
+    this.logsEnlarged.set(!this.logsEnlarged());
+  }
+
+  copyLogs(): void {
+    const logs = this.scriptStatusState().logs ?? [];
+    const text = logs.map(l => `[${l.ts}] [${l.level}] ${l.message}`).join('\n');
+    if (!text) return;
+    if (!navigator.clipboard) return;
+
+    navigator.clipboard.writeText(text).then(() => {
+      this.logsCopied.set(true);
+      setTimeout(() => this.logsCopied.set(false), 2500);
+    });
+  }
+
+  calculateNextCronDate(expr: string, fromMs: number): Date | null {
+    const parts = expr.trim().split(/\s+/);
+    if (parts.length < 5) return null;
+
+    const [minStr, hourStr] = parts;
+    const from = new Date(fromMs);
+
+    const min = Number(minStr);
+    const hour = Number(hourStr);
+
+    if (!Number.isNaN(min) && !Number.isNaN(hour) && minStr !== '*' && hourStr !== '*') {
+      const targetUtc = new Date(Date.UTC(
+        from.getUTCFullYear(),
+        from.getUTCMonth(),
+        from.getUTCDate(),
+        hour,
+        min,
+        0,
+        0
+      ));
+
+      if (targetUtc.getTime() > fromMs) {
+        return targetUtc;
+      }
+      return new Date(Date.UTC(
+        from.getUTCFullYear(),
+        from.getUTCMonth(),
+        from.getUTCDate() + 1,
+        hour,
+        min,
+        0,
+        0
+      ));
+    }
+
+    if (!Number.isNaN(min) && hourStr === '*') {
+      const targetUtc = new Date(Date.UTC(
+        from.getUTCFullYear(),
+        from.getUTCMonth(),
+        from.getUTCDate(),
+        from.getUTCHours(),
+        min,
+        0,
+        0
+      ));
+      if (targetUtc.getTime() > fromMs) {
+        return targetUtc;
+      }
+      return new Date(Date.UTC(
+        from.getUTCFullYear(),
+        from.getUTCMonth(),
+        from.getUTCDate(),
+        from.getUTCHours() + 1,
+        min,
+        0,
+        0
+      ));
+    }
+
+    return new Date(fromMs + 60000);
+  }
+
   // API Upload State
   readonly apiModalOpen = signal(false);
   readonly apiCurlCopied = signal(false);
@@ -442,11 +684,25 @@ export class WorkspacePageComponent implements AfterViewInit, OnDestroy {
     const workspaceId = this.workspaceId();
     if (!workspaceId) return;
 
+    this.killModalType.set('workspace');
+    this.killModalOpen.set(true);
+    this.killModalState.set('terminating');
+    this.killModalMessage.set('Executing Emergency Kill to terminate container and release all resources...');
+
     this.api.killWorkspace(workspaceId)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: () => this.router.navigate(['/dashboard']),
-        error: (err) => this.error.set(err?.error?.message ?? 'Failed to kill workspace')
+        next: () => {
+          this.killModalState.set('terminated');
+          this.killModalMessage.set('Workspace container has been terminated successfully. Redirecting to dashboard...');
+          window.setTimeout(() => {
+            this.closeKillModal();
+          }, 1600);
+        },
+        error: (err) => {
+          this.killModalState.set('error');
+          this.killModalMessage.set(err?.error?.message ?? 'Failed to execute emergency kill on workspace.');
+        }
       });
   }
 

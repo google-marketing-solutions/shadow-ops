@@ -22,17 +22,18 @@ The workspace page is the heart of ShadowOps, providing live interaction and scr
 
 ### Session Controls
 - **Recording Modes**: Toggle between 'Manual Mode' (user-controlled) and 'Recording Mode' (interactions are normalized into shadow steps).
-- **Emergency Kill**: Gracefully terminates the Docker container running the workspace.
+- **Emergency Kill**: Gracefully terminates the Docker container running the workspace with an animated confirmation modal loader before safely returning to the dashboard.
 - **Network Engine Indicator**: Visual pill showing WebSocket connection health and reconnection state.
 
-### Batch Script Runner
-- **CSV Data Input**: Upload a CSV file directly through the UI to run automation tasks sequentially across rows.
+### Automation Orchestration & `+ Create Run` Modal
+- **Multi-Step Wizard**: Clicking `+ Create Run` opens a modal allowing operators to select scripts (upload `.py` or load from library) and optional CSV datasets.
+- **Immediate vs Scheduled Execution**: Choose between immediate run execution (`▶ Run Now`) or configuring automated cron recurrence (`⏰ Set Schedule`).
+- **Cron Details & Dynamic Countdown**: Real-time ticker counting down until the next scheduled batch execution (`⏳ X days, Y hours, Z mins left`).
+- **Active Run Cancellation**: `■ Kill Active Run` stop button appears only during active execution, triggering an animated loader and status confirmation upon stopping.
 - **API CSV Upload**: Provides an "API Upload" modal containing the workspace's unique `API Secret Key` and copy-to-clipboard ready `cURL` commands for programmatic CSV hot-swapping.
-- **Python Script Loading**: If `SHADOWOPS_ENABLED=true`, users can upload custom Playwright Python scripts. Otherwise, they can select from a curated dropdown of default scripts.
-- **Run/Cancel Controls**: Manually execute or abort a running batch job with instant feedback.
 - **Results Download**: Download the executed CSV enriched with returned output attributes and error tracebacks.
 
 ### Script Logs & Telemetry
 - **Live Logging Panel**: Streams structured log entries directly from the Python script running inside the isolated Docker container.
-- **Tracebacks**: Formats and displays Python tracebacks if the script crashes or encounters an exception.
-- **Execution Status Pill**: Real-time visual indicator tracking whether the script is Idle, Running, Failed, or Succeeded.
+- **Log Tools**: One-click `📋 Copy Logs` to clipboard and `⛶ Enlarge View` modal for full-screen inspection of high-throughput logs.
+- **Execution History & Tracebacks**: Runs table displaying previous batch runs and interactive traceback accordions for failed jobs.

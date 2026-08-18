@@ -124,295 +124,183 @@
         </div>
       }
 
-      @if (shadowopsEnabled()) {
-        <div class="card script-runner-card">
-          <div class="script-runner-header">
-            <h3>Python Script Runner</h3>
-            <span class="script-status-pill" [class.running]="scriptRunning()" [class.failed]="scriptStatusState().status === 'failed'" [class.success]="scriptStatusState().status === 'succeeded'">
-              {{ scriptStatusState().status | uppercase }}
-            </span>
+      <!-- 1. Top Action Toolbar: + Create Run & Kill Current Run -->
+      <div class="run-action-bar">
+        <button
+          type="button"
+          class="btn-create-run"
+          (click)="openCreateRunModal($event)"
+          [disabled]="isRunActive()"
+        >
+          <span class="btn-icon">+</span> Create Run
+        </button>
+
+        @if (isRunActive()) {
+          <button
+            type="button"
+            class="btn-kill-run"
+            (click)="killCurrentRun()"
+            [disabled]="scriptSubmitting()"
+            title="Terminate the active execution immediately"
+          >
+            <span class="pulse-indicator"></span>
+            <span class="btn-icon">■</span> Kill Active Run
+          </button>
+        }
+      </div>
+
+      <!-- 2. Cron Details Card -->
+      <div class="card cron-details-card">
+        <div class="cron-card-header">
+          <div class="header-left">
+            <span class="header-icon">⏰</span>
+            <h3>Cron Details</h3>
           </div>
-          <p class="script-help">Run a user-authored Python Playwright script in this same workspace session (cookies/login preserved).</p>
-
-          <div class="script-loader">
-            <label class="script-label">
-              <span>Load script from library</span>
-              <select (change)="loadScriptFromActionSet($event)" [disabled]="scriptRunning() || scriptSubmitting()">
-                <option value="">Select a saved script...</option>
-                @for (item of scriptableActionSets(); track item.id) {
-                  <option [value]="item.id">{{ item.name }} (v{{ item.version }})</option>
-                }
-              </select>
-            </label>
-            <div class="or-divider">OR</div>
-            <label class="script-label">
-              <span>Upload from file (.py)</span>
-              <input type="file" accept=".py,text/x-python" (change)="onScriptFileSelected($event)" [disabled]="scriptRunning() || scriptSubmitting()" />
-            </label>
-          </div>
-
-          <label class="script-label">
-            <span>Filename</span>
-            <input [ngModel]="scriptFilename()" (ngModelChange)="scriptFilename.set($event)" [disabled]="scriptRunning()" />
-          </label>
-
-          <label class="script-label">
-            <span>Target URL (input to script)</span>
-            <input
-              [ngModel]="scriptTargetUrl()"
-              (ngModelChange)="onScriptTargetUrlChange($event)"
-              (focus)="onScriptTargetUrlFocus()"
-              (blur)="onScriptTargetUrlBlur()"
-              [disabled]="scriptRunning()"
-            />
-          </label>
-
-          <label class="script-label">
-            <span>Script Source</span>
-            <textarea
-              rows="8"
-              [ngModel]="scriptSource()"
-              (ngModelChange)="scriptSource.set($event)"
-              [disabled]="scriptRunning()"
-              placeholder="async def run(page, context, browser, target_url, helpers):&#10;    helpers.info(f'Running for {target_url}')&#10;    await page.goto(target_url)"
-            ></textarea>
-          </label>
-
-          <div class="script-actions">
-            <button
-              type="button"
-              class="script-run-btn"
-              (click)="runScript()"
-              [disabled]="scriptRunning() || scriptSubmitting() || !scriptSource().trim()"
-            >
-              ▶ Run Script
-            </button>
-            <button
-              type="button"
-              class="script-cancel-btn"
-              (click)="cancelScript()"
-              [disabled]="!scriptRunning() || scriptSubmitting()"
-            >
-              ■ Cancel
-            </button>
-          </div>
-
-          <div class="script-meta">
-            <div class="row"><span>Run ID</span><strong class="truncate">{{ scriptStatusState().runId || '—' }}</strong></div>
-            <div class="row"><span>Started</span><strong>{{ scriptStatusState().startedAt || '—' }}</strong></div>
-            <div class="row"><span>Finished</span><strong>{{ scriptStatusState().finishedAt || '—' }}</strong></div>
-          </div>
-
-          @if (scriptPanelError()) {
-            <div class="script-inline-error">{{ scriptPanelError() }}</div>
+          @if (cronSchedule()) {
+            <span class="cron-status-pill active">SCHEDULED</span>
+          } @else {
+            <span class="cron-status-pill idle">IDLE</span>
           }
-          @if (scriptStatusState().error) {
-            <div class="script-inline-error">
-              <strong>Run Error:</strong> {{ scriptStatusState().error }}
-            </div>
-          }
-          @if (scriptStatusState().traceback) {
-            <details class="script-traceback">
-              <summary>Traceback</summary>
-              <pre>{{ scriptStatusState().traceback }}</pre>
-            </details>
-          }
-          @if (scriptStatusState().result !== null && scriptStatusState().result !== undefined) {
-            <details class="script-result">
-              <summary>Result</summary>
-              <pre>{{ scriptStatusState().result | json }}</pre>
-            </details>
-          }
+        </div>
 
-          <div class="script-log-panel">
-            <div class="script-log-header">
-              <strong>Script Logs</strong>
-              <span>{{ (scriptStatusState().logs ?? []).length }} entries</span>
-            </div>
-            <div class="script-log-list">
-              @for (log of (scriptStatusState().logs ?? []); track $index) {
-                <div class="script-log-line">
-                  <span class="ts">{{ log.ts }}</span>
-                  <span class="level">{{ log.level }}</span>
-                  <span class="msg">{{ log.message }}</span>
-                </div>
-              } @empty {
-                <p class="script-log-empty">No script logs yet.</p>
+        <div class="cron-body">
+          <!-- Next Run Countdown Box -->
+          <div class="countdown-card">
+            <span class="countdown-label">Next Scheduled Run</span>
+            <div class="countdown-display">
+              @if (nextRunCountdown()) {
+                <span class="countdown-text">{{ nextRunCountdown() }}</span>
+              } @else {
+                <span class="countdown-none">No active schedule</span>
               }
             </div>
+            @if (cronSchedule()?.cronExpression) {
+              <div class="cron-sub-expr">Expression: <code>{{ cronSchedule()?.cronExpression }}</code></div>
+            }
           </div>
-        </div>
-      }
 
-        <div class="card batch-runner-card">
-          <div class="script-runner-header">
-            <h3>Run with CSV Inputs</h3>
-          </div>
-          <p class="script-help">Upload a CSV containing variables to run the script sequentially over each row. Results will be appended to the CSV.</p>
-
-          @if (!shadowopsEnabled()) {
-            <label class="script-label">
-              <span>Select Default Playwright Script</span>
-              <select (change)="onDefaultScriptSelected($event)" [disabled]="batchRunning() || scriptRunning()">
-                <option value="">-- Select Default Script --</option>
-                @for (item of defaultScripts(); track item.filename) {
-                  <option [value]="item.filename">{{ item.filename }}</option>
-                }
-              </select>
-            </label>
-          } @else {
-            <label class="script-label">
-              <span>Upload Python Script (.py)</span>
-              <input type="file" accept=".py,text/x-python" (change)="onScriptFileSelected($event)" [disabled]="batchRunning() || scriptRunning()" />
-            </label>
-            <div class="script-meta" style="margin-bottom: 12px; margin-top: -8px;">
-              <div class="row">
-                <span>Loaded Script</span>
-                <strong>{{ scriptFilename() || 'None selected' }}</strong>
+          <!-- Cron Meta Details -->
+          <div class="cron-meta-table">
+            <div class="cron-meta-row">
+              <span class="meta-label">Last Run</span>
+              <strong class="meta-value">{{ (lastRunDate() | date:'MMM d, y, h:mm a') || '—' }}</strong>
+            </div>
+            <div class="cron-meta-row">
+              <span class="meta-label">Script File</span>
+              <strong class="meta-value truncate" [title]="cronSchedule()?.scriptFilename || scriptFilename() || 'automation.py'">
+                {{ cronSchedule()?.scriptFilename || scriptFilename() || 'automation.py' }}
+              </strong>
+            </div>
+            @if (cronSchedule()?.csvFilename || csvFile()?.name) {
+              <div class="cron-meta-row">
+                <span class="meta-label">CSV Dataset</span>
+                <strong class="meta-value truncate" [title]="cronSchedule()?.csvFilename || csvFile()?.name">
+                  {{ cronSchedule()?.csvFilename || csvFile()?.name }}
+                </strong>
               </div>
+            }
+          </div>
+
+          <!-- Execution History Runs Table -->
+          <div class="runs-history-wrap">
+            <div class="runs-history-header">
+              <h4>Execution History</h4>
+              <button type="button" class="mini-refresh-btn" (click)="loadBatchExecutions()">↻ Refresh</button>
             </div>
-          }
-
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-            <span style="font-size: 0.8125rem; font-weight: 500; color: #475569;">Upload CSV File</span>
-            <button type="button" class="btn btn-sm" style="padding: 3px 10px; font-size: 12px; font-weight: 500; border-radius: 4px; border: 1px solid #cbd5e1; background: #ffffff; cursor: pointer; color: #1e293b; box-shadow: 0 1px 2px rgba(0,0,0,0.05);" (click)="openApiModal($event)">🔑 API Upload</button>
-          </div>
-          <label class="script-label" style="margin-top: 0;">
-            <input type="file" accept=".csv" (change)="onCsvSelected($event)" [disabled]="batchRunning() || scriptRunning()" />
-          </label>
-
-          <div class="script-actions">
-            <button type="button" class="script-run-btn" (click)="runBatch()"
-              [disabled]="batchRunning() || scriptRunning() || !csvData().length || !scriptSource().trim()">
-              ▶ Run
-            </button>
-            <button type="button" class="script-cancel-btn" (click)="cancelBatch()" [disabled]="!batchRunning()">
-              ■ Cancel
-            </button>
-            <button type="button" class="script-cancel-btn" (click)="downloadBatchResults()" [disabled]="!csvData().length">
-              ⬇ Download Results
-            </button>
-          </div>
-
-          @if (batchRunning()) {
-          <div class="script-meta">
-            <div class="row">
-              <span>Progress</span>
-              <strong>{{ batchProgress().current }} / {{ batchProgress().total }}</strong>
-            </div>
-          </div>
-          }
-
-          @if (csvData().length > 0) {
-          <div class="csv-preview">
-            <h4>CSV Preview ({{ csvData().length }} rows)</h4>
-            <div class="table-container" style="max-height: 300px; overflow-y: auto; overflow-x: auto;">
-              <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+            <div class="runs-table-scroll">
+              <table class="runs-table">
                 <thead>
                   <tr>
-                    @for (col of getCsvKeys(); track col) {
-                    <th style="border: 1px solid #ddd; padding: 4px; text-align: left; background-color: #f5f5f5;">{{ col }}
-                    </th>
-                    }
+                    <th>Started</th>
+                    <th>Status</th>
+                    <th>Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  @for (row of csvData(); track $index) {
-                  <tr>
-                    @for (col of getCsvKeys(); track col) {
-                    <td style="border: 1px solid #ddd; padding: 4px;">{{ row[col] }}</td>
-                    }
-                  </tr>
+                  @for (exec of batchExecutions(); track exec.id) {
+                    <tr>
+                      <td class="time-cell">{{ exec.startedAt | date:'short' }}</td>
+                      <td>
+                        <span class="run-status-chip" [class.success]="exec.status === 'success'" [class.failed]="exec.status === 'failed'" [class.running]="exec.status === 'running'">
+                          {{ exec.status | uppercase }}
+                        </span>
+                      </td>
+                      <td>
+                        @if (exec.status === 'success') {
+                          <button type="button" class="mini-link-btn" (click)="downloadExecutionCsv(exec.id)">CSV ⬇</button>
+                        }
+                        @if (exec.status === 'running') {
+                          <button type="button" class="mini-link-btn danger" (click)="cancelExecution(exec.id)">Cancel</button>
+                        }
+                      </td>
+                    </tr>
+                  } @empty {
+                    <tr>
+                      <td colspan="3" class="empty-runs-cell">No prior batch runs recorded.</td>
+                    </tr>
                   }
                 </tbody>
               </table>
             </div>
           </div>
-          }
+        </div>
+      </div>
+
+      <!-- 3. Logs Section -->
+      <div class="card logs-card">
+        <div class="logs-card-header">
+          <div class="header-left">
+            <span class="header-icon">📋</span>
+            <h3>Execution Logs</h3>
+            <span class="log-count-badge">({{ (scriptStatusState().logs ?? []).length }})</span>
+          </div>
+          <div class="logs-header-actions">
+            <button
+              type="button"
+              class="log-btn"
+              (click)="copyLogs()"
+              [title]="'Copy all ' + (scriptStatusState().logs ?? []).length + ' logs to clipboard'"
+            >
+              {{ logsCopied() ? '✓ Copied' : 'Copy' }}
+            </button>
+            <button
+              type="button"
+              class="log-btn"
+              (click)="toggleLogsEnlarge()"
+              title="Expand logs panel"
+            >
+              {{ logsEnlarged() ? '🗗 Contract' : '⛶ Enlarge' }}
+            </button>
+          </div>
         </div>
 
-        <div class="card cron-runner-card">
-          <div class="script-runner-header">
-            <h3>Cron Schedule</h3>
+        @if (scriptPanelError()) {
+          <div class="script-inline-error">{{ scriptPanelError() }}</div>
+        }
+        @if (scriptStatusState().error) {
+          <div class="script-inline-error">
+            <strong>Run Error:</strong> {{ scriptStatusState().error }}
           </div>
-          <p class="script-help">Schedule the currently loaded script and CSV to run automatically.</p>
+        }
+        @if (scriptStatusState().result !== null && scriptStatusState().result !== undefined) {
+          <details class="script-result">
+            <summary>Result Output</summary>
+            <pre>{{ scriptStatusState().result | json }}</pre>
+          </details>
+        }
 
-          @if (!shadowopsEnabled()) {
-            <div class="script-meta" style="margin-bottom: 12px;">
-              <div class="row">
-                <span>Loaded Script</span>
-                <strong>{{ scriptFilename() || 'None selected' }}</strong>
-              </div>
+        <div class="script-log-list" [class.logs-expanded]="logsEnlarged()">
+          @for (log of (scriptStatusState().logs ?? []); track $index) {
+            <div class="script-log-line">
+              <span class="ts">{{ log.ts }}</span>
+              <span class="level" [class.info]="log.level === 'INFO'" [class.warn]="log.level === 'WARN'" [class.error]="log.level === 'ERROR'">[{{ log.level }}]</span>
+              <span class="msg">{{ log.message }}</span>
             </div>
+          } @empty {
+            <p class="script-log-empty">No execution logs yet. Click "+ Create Run" to launch automation.</p>
           }
-
-          <label class="script-label">
-            <span>Cron Expression (e.g., 0 0 * * * for daily)</span>
-            <input [ngModel]="cronExpression()" (ngModelChange)="cronExpression.set($event)" placeholder="* * * * *" />
-          </label>
-
-          <div class="script-actions">
-            <button type="button" class="script-run-btn" (click)="saveCronSchedule()"
-              [disabled]="!cronExpression().trim()">
-              💾 Save Schedule
-            </button>
-            @if (cronSchedule()) {
-            <button type="button" class="script-cancel-btn" (click)="deleteCronSchedule()">
-              🗑️ Delete Schedule
-            </button>
-            }
-          </div>
-
-          @if (cronSchedule(); as cron) {
-          <div class="script-meta">
-            <div class="row">
-              <span>Active Schedule</span>
-              <strong>{{ cron.cronExpression }}</strong>
-            </div>
-            <div class="row">
-              <span>Script</span>
-              <strong>{{ cron.scriptFilename || 'cron_automation.py' }}</strong>
-            </div>
-            <div class="row">
-              <span>CSV File</span>
-              <strong>{{ cron.csvFilename || 'data.csv' }}</strong>
-            </div>
-            <div class="row">
-              <span>Last Updated</span>
-              <strong>{{ cron.updatedAt | date:'short' }}</strong>
-            </div>
-          </div>
-          }
-
-          <div class="script-log-panel" style="margin-top: 16px;">
-            <div class="script-log-header">
-              <strong>Execution History (Last 10)</strong>
-              <button type="button" class="mini" (click)="loadBatchExecutions()">Refresh</button>
-            </div>
-            <div class="script-log-list" style="max-height: 200px; overflow-y: auto;">
-              @for (exec of batchExecutions(); track exec.id) {
-              <div class="script-log-line"
-                style="display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px solid #eee;">
-                <div>
-                  <span class="ts">{{ exec.startedAt | date:'short' }}</span>
-                  <span class="level" [class.success]="exec.status === 'success'" [class.failed]="exec.status === 'failed'">{{
-                    exec.status | uppercase }}</span>
-                </div>
-                <div>
-                  @if (exec.status === 'success') {
-                  <button type="button" class="mini" (click)="downloadExecutionCsv(exec.id)">Download CSV</button>
-                  }
-                  @if (exec.status === 'running') {
-                  <button type="button" class="mini" (click)="cancelExecution(exec.id)">Cancel</button>
-                  }
-                </div>
-              </div>
-              } @empty {
-              <p class="script-log-empty">No execution history.</p>
-              }
-            </div>
-          </div>
         </div>
+      </div>
 
       @if (shadowopsEnabled()) {
         <div class="card timeline-card">
@@ -455,9 +343,166 @@
   </div>
 </section>
 
+<!-- Multi-Step Create Run Modal -->
+@if (createRunModalOpen()) {
+<div class="modal-backdrop" (click)="closeCreateRunModal($event)">
+  <div class="modal-content create-run-modal" (click)="$event.stopPropagation()">
+    <div class="modal-header">
+      <div class="wizard-header-title">
+        <h2>Create Automation Run</h2>
+        <span class="step-indicator">Step {{ createRunStep() }} of 2: {{ createRunStep() === 1 ? 'Select Script & Inputs' : 'Execution Mode' }}</span>
+      </div>
+      <button type="button" class="close-btn" (click)="closeCreateRunModal($event)">×</button>
+    </div>
+
+    <div class="modal-body">
+      <!-- Step 1: Select Script & CSV -->
+      @if (createRunStep() === 1) {
+        <div class="step-pane">
+          <div class="form-group">
+            <label class="form-label">1. Select Automation Script</label>
+            @if (shadowopsEnabled()) {
+              <div class="script-selection-row">
+                <label class="upload-btn-label">
+                  <span>📁 Upload Script (.py)</span>
+                  <input type="file" accept=".py,text/x-python" (change)="onScriptFileSelected($event)" />
+                </label>
+                <div class="or-separator">OR</div>
+                <select class="library-select" (change)="loadScriptFromActionSet($event)">
+                  <option value="">Load from Library...</option>
+                  @for (item of scriptableActionSets(); track item.id) {
+                    <option [value]="item.id">{{ item.name }} (v{{ item.version }})</option>
+                  }
+                </select>
+              </div>
+            } @else {
+              <select class="library-select" (change)="onDefaultScriptSelected($event)">
+                <option value="">-- Select Default Playwright Script --</option>
+                @for (item of defaultScripts(); track item.filename) {
+                  <option [value]="item.filename">{{ item.filename }}</option>
+                }
+              </select>
+            }
+
+            @if (scriptSource().trim()) {
+              <div class="selected-script-banner">
+                <span class="check-icon">✓</span>
+                <span>Selected: <strong>{{ scriptFilename() }}</strong></span>
+              </div>
+            }
+          </div>
+
+          <div class="form-group" style="margin-top: 1.25rem;">
+            <div class="csv-header-row">
+              <label class="form-label">2. CSV Dataset (Optional for multi-row batch)</label>
+              <button type="button" class="api-link-btn" (click)="openApiModal($event)">🔑 API Upload</button>
+            </div>
+            <input type="file" class="csv-file-input" accept=".csv" (change)="onCsvSelected($event)" />
+
+            @if (csvData().length > 0) {
+              <div class="csv-loaded-banner">
+                <span class="check-icon">✓</span>
+                <span>Loaded <strong>{{ csvData().length }} rows</strong> from {{ csvFile()?.name || 'dataset.csv' }}</span>
+              </div>
+            }
+          </div>
+        </div>
+      }
+
+      <!-- Step 2: Choose Execution Mode (Run Now vs Set Schedule) -->
+      @if (createRunStep() === 2) {
+        <div class="step-pane">
+          <label class="form-label">Select Execution Type</label>
+          <div class="mode-cards-grid">
+            <div
+              class="mode-card"
+              [class.selected]="selectedExecutionMode() === 'now'"
+              (click)="selectedExecutionMode.set('now')"
+            >
+              <div class="mode-icon">▶</div>
+              <div class="mode-text">
+                <strong>Run Now</strong>
+                <p>Execute immediately in active workspace session</p>
+              </div>
+            </div>
+
+            <div
+              class="mode-card"
+              [class.selected]="selectedExecutionMode() === 'schedule'"
+              (click)="selectedExecutionMode.set('schedule')"
+            >
+              <div class="mode-icon">⏰</div>
+              <div class="mode-text">
+                <strong>Set Schedule</strong>
+                <p>Run automatically via recurring cron schedule</p>
+              </div>
+            </div>
+          </div>
+
+          @if (selectedExecutionMode() === 'schedule') {
+            <div class="cron-config-box">
+              <label class="form-label">Cron Expression String</label>
+              <input
+                type="text"
+                class="cron-input"
+                [ngModel]="cronExpression()"
+                (ngModelChange)="cronExpression.set($event)"
+                placeholder="45 14 * * *"
+              />
+              <small class="cron-hint">Format: <code>minute hour day-of-month month day-of-week</code> (e.g. <code>45 14 * * *</code> for 2:45 PM UTC daily)</small>
+
+              @if (cronSchedule()?.cronExpression) {
+                <div class="existing-cron-notice">
+                  <span>Current schedule: <strong>{{ cronSchedule()?.cronExpression }}</strong> (editing will replace this schedule).</span>
+                </div>
+              }
+            </div>
+          }
+        </div>
+      }
+    </div>
+
+    <div class="modal-footer">
+      @if (createRunStep() === 1) {
+        <button type="button" class="btn-secondary" (click)="closeCreateRunModal($event)">Cancel</button>
+        <button
+          type="button"
+          class="btn-primary"
+          (click)="nextCreateRunStep()"
+          [disabled]="!scriptSource().trim()"
+        >
+          Next →
+        </button>
+      } @else {
+        <button type="button" class="btn-secondary" (click)="prevCreateRunStep()">← Back</button>
+        @if (selectedExecutionMode() === 'now') {
+          <button
+            type="button"
+            class="btn-primary"
+            (click)="submitCreateRunNow()"
+          >
+            ▶ Run Now
+          </button>
+        } @else {
+          <button
+            type="button"
+            class="btn-primary"
+            (click)="submitSetSchedule()"
+            [disabled]="!cronExpression().trim()"
+          >
+            💾 Set Schedule
+          </button>
+        }
+      }
+    </div>
+  </div>
+</div>
+}
+
+<!-- API CSV Upload Modal (Nested on top of Create Run) -->
 @if (apiModalOpen()) {
-<div class="modal-backdrop" (click)="closeApiModal($event)">
-  <div class="modal-content" style="max-width: 580px;" (click)="$event.stopPropagation()">
+<div class="modal-backdrop api-modal-backdrop" (click)="closeApiModal($event)">
+  <div class="modal-content api-upload-modal" (click)="$event.stopPropagation()">
     <div class="modal-header">
       <h2>Upload CSV via API</h2>
       <button type="button" class="close-btn" (click)="closeApiModal($event)">×</button>
@@ -477,13 +522,95 @@
         <div style="background: #0f172a; padding: 12px; border-radius: 6px; font-family: var(--font-mono); font-size: 0.8125rem; border: 1px solid #1e293b; margin-top: 4px; white-space: pre-wrap; word-break: break-all; color: #38bdf8;">curl -X POST -H "Authorization: Bearer {{ workspaceStatus()?.apiKey || 'UNKNOWN' }}" -F "file=&#64;data.csv" {{ windowLocationOrigin }}/api/v1/workspaces/{{ workspaceId() }}/upload-csv</div>
       </div>
 
-      <div style="display: flex; justify-content: flex-end; align-items: center; gap: 12px;">
+      <div class="modal-footer" style="padding: 12px 0 0 0; background: transparent; border-top: none;">
         @if (apiCurlCopied()) {
           <span style="color: #16a34a; font-size: 0.875rem; font-weight: 500;">✓ Copied to clipboard!</span>
         }
-        <button type="button" class="btn btn-primary" style="padding: 8px 16px; border-radius: 6px; background: #1a73e8; color: #fff; border: none; font-weight: 500; cursor: pointer;" (click)="copyApiCurl()">{{ apiCurlCopied() ? 'Copied' : 'Copy cURL' }}</button>
+        <button type="button" class="btn-primary" (click)="copyApiCurl()">{{ apiCurlCopied() ? 'Copied' : 'Copy cURL' }}</button>
       </div>
     </div>
+  </div>
+</div>
+}
+
+<!-- Enlarged Fullscreen Logs Overlay -->
+@if (logsEnlarged()) {
+<div class="modal-backdrop" (click)="toggleLogsEnlarge()">
+  <div class="modal-content enlarged-logs-modal" (click)="$event.stopPropagation()">
+    <div class="modal-header">
+      <div class="wizard-header-title">
+        <h2>Execution Logs Stream</h2>
+        <span class="step-indicator">{{ (scriptStatusState().logs ?? []).length }} entries</span>
+      </div>
+      <div class="modal-header-btns">
+        <button type="button" class="log-tool-btn" (click)="copyLogs()">
+          {{ logsCopied() ? '✓ Copied' : '📋 Copy Logs' }}
+        </button>
+        <button type="button" class="close-btn" (click)="toggleLogsEnlarge()">×</button>
+      </div>
+    </div>
+    <div class="modal-body" style="padding: 1rem; max-height: 70vh; overflow-y: auto; background: #0f172a; border-radius: 6px;">
+      <div class="fullscreen-log-list">
+        @for (log of (scriptStatusState().logs ?? []); track $index) {
+          <div class="fullscreen-log-line">
+            <span class="ts">{{ log.ts }}</span>
+            <span class="level" [class.info]="log.level === 'INFO'" [class.warn]="log.level === 'WARN'" [class.error]="log.level === 'ERROR'">[{{ log.level }}]</span>
+            <span class="msg">{{ log.message }}</span>
+          </div>
+        } @empty {
+          <p class="fullscreen-log-empty">No execution logs recorded yet.</p>
+        }
+      </div>
+    </div>
+  </div>
+</div>
+}
+
+<!-- Kill Run / Workspace Status Modal with Loader -->
+@if (killModalOpen()) {
+<div class="modal-backdrop" (click)="killModalState() !== 'terminating' ? closeKillModal() : null">
+  <div class="modal-content kill-modal" (click)="$event.stopPropagation()">
+    <div class="modal-header">
+      <div class="wizard-header-title">
+        <h2>
+          @if (killModalType() === 'workspace') {
+            {{ killModalState() === 'terminating' ? 'Terminating Workspace' : (killModalState() === 'terminated' ? 'Workspace Terminated' : 'Termination Failed') }}
+          } @else {
+            {{ killModalState() === 'terminating' ? 'Stopping Execution' : (killModalState() === 'terminated' ? 'Run Terminated' : 'Termination Status') }}
+          }
+        </h2>
+      </div>
+      @if (killModalState() !== 'terminating') {
+        <button type="button" class="close-btn" (click)="closeKillModal()">×</button>
+      }
+    </div>
+    <div class="modal-body kill-modal-body">
+      @if (killModalState() === 'terminating') {
+        <div class="kill-loading-wrap">
+          <div class="kill-spinner"></div>
+          <p class="kill-text">{{ killModalMessage() }}</p>
+        </div>
+      }
+      @if (killModalState() === 'terminated') {
+        <div class="kill-success-wrap">
+          <div class="kill-success-icon">✓</div>
+          <p class="kill-text">{{ killModalMessage() }}</p>
+        </div>
+      }
+      @if (killModalState() === 'error') {
+        <div class="kill-error-wrap">
+          <div class="kill-error-icon">✕</div>
+          <p class="kill-text">{{ killModalMessage() }}</p>
+        </div>
+      }
+    </div>
+    @if (killModalState() !== 'terminating') {
+      <div class="modal-footer" style="justify-content: center;">
+        <button type="button" class="btn-primary" (click)="closeKillModal()">
+          {{ killModalType() === 'workspace' && killModalState() === 'terminated' ? 'Go to Dashboard' : 'Dismiss' }}
+        </button>
+      </div>
+    }
   </div>
 </div>
 }

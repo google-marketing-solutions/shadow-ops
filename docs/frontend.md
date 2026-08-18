@@ -16,10 +16,11 @@ The ShadowOps frontend is a rich Angular 19 single-page web application providin
 - **Coordinate Scaling**: Translates operator viewport mouse clicks, double clicks, scrolls, and drag events to remote Chromium browser dimensions.
 - **Interactive Navigation Bar**: Live URL bar with forward/back controls and page reloads.
 
-### 3. Batch Script Runner & Telemetry (`workspace-page.component.ts`)
-- **CSV Data Input**: Interactive CSV file upload and table preview with row-level status indicators.
-- **API Upload Modal**: Provides the workspace's unique `API Secret Key` and ready-to-use `cURL` commands for programmatic CSV uploading.
-- **Execution Telemetry**: Streams structured log entries in real-time alongside visual pass/fail pills and traceback error blocks.
+### 3. Automation Orchestration & Cron Details (`workspace-page.component.ts`)
+- **`+ Create Run` Modal Wizard**: Multi-step modal for uploading/selecting scripts (.py or library) and choosing between immediate execution (`▶ Run Now`) or recurring scheduling (`⏰ Set Schedule`).
+- **Dynamic Cron Details Card**: Live real-time countdown ticker until the next scheduled run, metadata for target script and CSV dataset, and execution history runs table.
+- **Active Run Termination & Loaders**: Dedicated `■ Kill Active Run` button and `Emergency Kill` modal with animated loading spinners and cancellation confirmation.
+- **Execution Telemetry & Tools**: Live streaming log console with one-click `📋 Copy Logs` and `⛶ Enlarge View` overlay.
 - **Results Export**: Download executed CSV files enriched with returned script values and error messages.
 
 ### 4. ActionSet (Shadow) Studio & Gemini AI
@@ -34,3 +35,4 @@ The ShadowOps frontend is a rich Angular 19 single-page web application providin
 - **Framework**: Angular 19 (Signals, Standalone Components, Zoneless Change Detection).
 - **Styling**: Google Material Symbols, CSS Grid / Flexbox, SCSS design tokens with dark/light mode themes.
 - **Production Build**: Compiled into `./frontend/dist/frontend/browser` and embedded directly in the Go backend binary.
+
