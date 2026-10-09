@@ -32,9 +32,10 @@ RUN mkdir -p /root/.cache/ms-playwright-go/1.50.1 && \
     ln -s $(which node) /root/.cache/ms-playwright-go/1.50.1/node && \
     /root/.cache/ms-playwright-go/1.50.1/node /root/.cache/ms-playwright-go/1.50.1/package/cli.js install chromium chrome
 
+COPY requirements.txt .
 RUN apt-get update -qq && \
     apt-get install -y -qq python3-pip xvfb && \
-    pip install -q --break-system-packages playwright==1.51.0 && \
+    pip install -q --break-system-packages --require-hashes -r requirements.txt && \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/agent .
